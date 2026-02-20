@@ -11,7 +11,7 @@ flowchart LR
     T2["Task: segment_structures <i>(creates segmented images for each structure in each image)</i>"]
     T3["Task: assess_structure <i>(uses VLM to assess building subtype, ex: destroyed, minor-damage, etc))</i>"]
 
-    OBJ(["Blob Object Storage for images - S3 or compatible solution")]
+    OBJ[("Blob Object Storage for images - S3 or compatible solution")]
     DB[("MongoDB database collections: <br/><br/>source_records <i>(stores metadata from source JSON)</i><br/>structures <i>(stores building features + original assessment result from source JSON)</i><br/>assessments <i>(stores VLM disaster assessment)</i>")]
 
     PARAM --> T1
