@@ -1,5 +1,9 @@
 # Disaster-Detection-VLM
 
+- [] finish FE routing setup
+- [] go through https://tanstack.com/router/v1/docs/installation/with-rspack#ignoring-the-generated-route-tree-file
+- [] zed + vscode suggested extensions + settings
+
 ## Misc. notes + diagrams
 
 ### Data pipeline DAG flow 
