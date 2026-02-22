@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
-        inputs:
+        with:
           package_json_file: ./frontend/package.json
           cache_dependency_path: ./frontend/pnpm-lock.yaml
 
