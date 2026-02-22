@@ -10,7 +10,7 @@
     "test": "rstest",
     "test:watch": "rstest --watch",
     "lint": "oxfmt --check && oxlint --type-aware --type-check",
-    "lint:github": "oxfmt --check --format=github && oxlint --type-aware --type-check --format=github",
+    "lint:github": "oxfmt --check && oxlint --type-aware --type-check --format=github",
     "lint:fix": "oxfmt && oxlint --type-aware --type-check --fix"
   },
   "dependencies": {
