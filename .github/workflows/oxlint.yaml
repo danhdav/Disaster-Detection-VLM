@@ -12,7 +12,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
-        working-directory: ./frontend
+        package_json_file: ./frontend/package.json
+        cache_dependency_path: ./frontend/pnpm-lock.yaml
 
       - uses: actions/setup-node@v6
         with:
