@@ -3,6 +3,11 @@
 - [] go through https://tanstack.com/router/v1/docs/installation/with-rspack#ignoring-the-generated-route-tree-file
 - [] zed + vscode suggested extensions + settings
 
+## Setup
+
+- Frontend: Follow the instructions in the [frontend README](./frontend/README.md) to set up the frontend application.
+- Backend: TODO
+
 ## Misc. notes + diagrams
 
 ### Data pipeline DAG flow 

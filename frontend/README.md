@@ -1,10 +1,10 @@
-# Rsbuild project
+# Frontend
 
-
+This is a React.js project using Rsbuild as the bundler. It serves as the frontend for the project, allowing users to interact with the application and visualize disaster assessments.
 
 ## Setup
 
-_Before beginning the following steps, ensure you have a local install of Node.js 22.x._
+_Before beginning the following steps, ensure you have a local install of Node.js 22.x. If you don't already have one, go to the [Node.js official website](https://nodejs.org/) to download and install it._
 
 Install the dependencies:
 
