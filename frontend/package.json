@@ -9,8 +9,9 @@
     "preview": "rsbuild preview",
     "test": "rstest",
     "test:watch": "rstest --watch",
-    "lint": "oxlint --type-aware --type-check",
-    "lint:fix": "oxlint --type-aware --type-check --fix"
+    "lint": "oxfmt --check && oxlint --type-aware --type-check",
+    "lint:github": "oxfmt --check --format=github && oxlint --type-aware --type-check --format=github",
+    "lint:fix": "oxfmt && oxlint --type-aware --type-check --fix"
   },
   "dependencies": {
     "react": "^19.2.3",
@@ -26,6 +27,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "happy-dom": "^20.0.11",
+    "oxfmt": "^0.34.0",
     "oxlint": "^1.49.0",
     "oxlint-tsgolint": "^0.14.2",
     "typescript": "^5.9.3"

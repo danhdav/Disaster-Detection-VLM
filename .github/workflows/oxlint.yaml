@@ -23,5 +23,5 @@ jobs:
       # alternatively use npm install / yarn install here
       - run: pnpm install --frozen-lockfile
         working-directory: ./frontend
-      - run: pnpm run lint --format=github
+      - run: pnpm run lint:github
         working-directory: ./frontend
