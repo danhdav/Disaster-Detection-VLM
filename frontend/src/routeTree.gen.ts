@@ -8,52 +8,52 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as baseIndexRouteImport } from './routes/(base)/index'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as baseIndexRouteImport } from "./routes/(base)/index";
 
 const baseIndexRoute = baseIndexRouteImport.update({
-  id: '/(base)/',
-  path: '/',
+  id: "/(base)/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof baseIndexRoute
+  "/": typeof baseIndexRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof baseIndexRoute
+  "/": typeof baseIndexRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/(base)/': typeof baseIndexRoute
+  __root__: typeof rootRouteImport;
+  "/(base)/": typeof baseIndexRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/(base)/'
-  fileRoutesById: FileRoutesById
+  fileRoutesByFullPath: FileRoutesByFullPath;
+  fullPaths: "/";
+  fileRoutesByTo: FileRoutesByTo;
+  to: "/";
+  id: "__root__" | "/(base)/";
+  fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  baseIndexRoute: typeof baseIndexRoute
+  baseIndexRoute: typeof baseIndexRoute;
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    '/(base)/': {
-      id: '/(base)/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof baseIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
+    "/(base)/": {
+      id: "/(base)/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof baseIndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   baseIndexRoute: baseIndexRoute,
-}
+};
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+  ._addFileTypes<FileRouteTypes>();
