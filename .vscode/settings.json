@@ -1,11 +1,24 @@
 {
   "files.readonlyInclude": {
-    "**/routeTree.gen.ts": true
+    "**/routeTree.gen.ts": true,
   },
   "files.watcherExclude": {
-    "**/routeTree.gen.ts": true
+    "**/routeTree.gen.ts": true,
   },
   "search.exclude": {
-    "**/routeTree.gen.ts": true
-  }
+    "**/routeTree.gen.ts": true,
+  },
+
+  // oxc formatter
+  "oxc.fmt.configPath": "frontend/.oxfmtrc.json",
+  "editor.defaultFormatter": "oxc.oxc-vscode",
+  "editor.formatOnSave": true,
+
+  // oxlint LSP + type-aware linting
+  "oxc.typeAware": true,
+
+  // oxlint fix-on-save
+  "editor.codeActionsOnSave": {
+    "source.fixAll.oxc": "always",
+  },
 }

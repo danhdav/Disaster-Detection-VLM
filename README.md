@@ -1,11 +1,9 @@
 # Disaster-Detection-VLM
 
-- [] zed + vscode suggested extensions + settings
-
 ## Setup
 
 - Frontend: Follow the instructions in the [frontend README](./frontend/README.md) to set up the frontend application.
-- Backend: TODO
+- Backend: TODO - see ticket SEN-30
 
 ## Misc. notes + diagrams
 
