@@ -1,0 +1,28 @@
+name: Lint
+
+on:
+  push:
+
+permissions: {}
+
+jobs:
+  oxlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ./frontend/package.json
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: './frontend/pnpm-lock.yaml'
+
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: ./frontend
+      - run: pnpm run lint:github
+        working-directory: ./frontend

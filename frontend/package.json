@@ -1,0 +1,39 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rsbuild build",
+    "dev": "rsbuild dev --open",
+    "preview": "rsbuild preview",
+    "test": "rstest",
+    "test:watch": "rstest --watch",
+    "lint": "oxfmt --check && oxlint --type-aware --type-check",
+    "lint:github": "oxfmt --check && oxlint --type-aware --type-check --format=github",
+    "lint:fix": "oxfmt && oxlint --type-aware --type-check --fix"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "^1.162.2",
+    "@tanstack/react-router-devtools": "^1.162.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^1.7.1",
+    "@rsbuild/plugin-react": "^1.4.2",
+    "@rstest/core": "^0.7.8",
+    "@tanstack/router-plugin": "^1.162.2",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "happy-dom": "^20.0.11",
+    "oxfmt": "^0.34.0",
+    "oxlint": "^1.49.0",
+    "oxlint-tsgolint": "^0.14.2",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@10.29.3+sha512.498e1fb4cca5aa06c1dcf2611e6fafc50972ffe7189998c409e90de74566444298ffe43e6cd2acdc775ba1aa7cc5e092a8b7054c811ba8c5770f84693d33d2dc"
+}
