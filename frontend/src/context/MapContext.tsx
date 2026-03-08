@@ -1,10 +1,9 @@
 import * as React from "react";
 import type { FeatureCollection } from "geojson";
 
+import { API_BASE } from "../lib/api";
 import { getBoundsFromFeatureCollection, type Bounds } from "../lib/bounds";
 import { labelFeaturesToGeoJson, type LabelFeature } from "../lib/wkt";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:80";
 
 export interface DisasterSummary {
   id: string;
@@ -29,6 +28,7 @@ interface LabelPhase {
     xy: unknown[];
   };
   imgName?: string;
+  imageUrl?: string;
 }
 
 interface SceneLabels {
@@ -61,12 +61,14 @@ interface MapContextValue {
   sceneBounds: Bounds | null;
   showPre: boolean;
   showPost: boolean;
+  layerMode: "pre" | "post" | "both";
   analysisResult: string | null;
   isAnalyzing: boolean;
   analysisError: string | null;
   setActiveDisaster: (disasterId: string) => Promise<void>;
   setActiveFeature: (featureId: string | null) => void;
   setLayerVisibility: (next: { showPre?: boolean; showPost?: boolean }) => void;
+  setLayerMode: (mode: "pre" | "post" | "both") => void;
   runAnalysis: () => Promise<void>;
   clearAnalysis: () => void;
 }
@@ -238,6 +240,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       sceneBounds,
       showPre,
       showPost,
+      layerMode: showPre && showPost ? "both" : showPre ? "pre" : "post",
       analysisResult,
       isAnalyzing,
       analysisError,
@@ -246,6 +249,20 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       setLayerVisibility: (next) => {
         if (typeof next.showPre === "boolean") setShowPre(next.showPre);
         if (typeof next.showPost === "boolean") setShowPost(next.showPost);
+      },
+      setLayerMode: (mode) => {
+        if (mode === "pre") {
+          setShowPre(true);
+          setShowPost(false);
+          return;
+        }
+        if (mode === "post") {
+          setShowPre(false);
+          setShowPost(true);
+          return;
+        }
+        setShowPre(true);
+        setShowPost(true);
       },
       runAnalysis,
       clearAnalysis: () => {

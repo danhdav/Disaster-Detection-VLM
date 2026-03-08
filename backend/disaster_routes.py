@@ -2,6 +2,7 @@ import json
 import os
 import base64
 from pathlib import Path
+from urllib.parse import quote
 from typing import Any
 
 import requests
@@ -83,6 +84,12 @@ def _extract_label_bounds(label_data: dict[str, Any]) -> list[float] | None:
 def _load_label(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _image_url_for_name(img_name: str | None) -> str | None:
+    if not img_name:
+        return None
+    return f"/disasters/images/{quote(img_name)}"
 
 
 def _encode_image_to_data_url(path: Path) -> str | None:
@@ -227,6 +234,7 @@ def _build_dataset_index() -> dict[str, Any]:
             "metadata": metadata,
             "features": label_data.get("features", {}),
             "imgName": metadata.get("img_name"),
+            "imageUrl": _image_url_for_name(metadata.get("img_name")),
         }
 
     for disaster in disasters.values():

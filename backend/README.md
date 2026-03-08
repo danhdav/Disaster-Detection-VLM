@@ -16,4 +16,4 @@ or if you are using Windows:
 IMPORTANT: since local development uses dotenv, request a .env file from me
 
 Run the flask server:
-`uv run --flask app server`
+`uv run flask --app server`

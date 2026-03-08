@@ -4,14 +4,14 @@ import { DeckGL } from "@deck.gl/react";
 import type { Feature, FeatureCollection } from "geojson";
 import Map, { NavigationControl } from "react-map-gl/maplibre";
 
+import { API_BASE } from "../lib/api";
 import type { Bounds } from "../lib/bounds";
 
 import "maplibre-gl/dist/maplibre-gl.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:80";
-
 interface LabelPhase {
   imgName?: string;
+  imageUrl?: string;
 }
 
 interface MapViewProps {
@@ -94,7 +94,9 @@ export function MapView({
       output.push(
         new BitmapLayer({
           id: "pre-image",
-          image: `${API_BASE}/disasters/images/${pre.imgName}`,
+          image: pre.imageUrl
+            ? `${API_BASE}${pre.imageUrl}`
+            : `${API_BASE}/disasters/images/${pre.imgName}`,
           bounds,
           opacity: 0.7,
         }),
@@ -105,7 +107,9 @@ export function MapView({
       output.push(
         new BitmapLayer({
           id: "post-image",
-          image: `${API_BASE}/disasters/images/${post.imgName}`,
+          image: post.imageUrl
+            ? `${API_BASE}${post.imageUrl}`
+            : `${API_BASE}/disasters/images/${post.imgName}`,
           bounds,
           opacity: showPre ? 0.65 : 0.9,
         }),

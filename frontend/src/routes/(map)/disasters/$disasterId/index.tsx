@@ -15,9 +15,8 @@ function DisasterRegionPanel() {
     sceneLabels,
     geoJson,
     isLoadingScene,
-    showPre,
-    showPost,
-    setLayerVisibility,
+    layerMode,
+    setLayerMode,
     clearAnalysis,
   } = useMapContext();
 
@@ -41,22 +40,33 @@ function DisasterRegionPanel() {
       <h2>{disasterId}</h2>
       {isLoadingScene ? <p>Loading region...</p> : null}
 
-      <div className="chip-row">
+      <div className="chip-row" role="radiogroup" aria-label="Raster layer mode">
         <label className="chip">
           <input
-            checked={showPre}
-            onChange={(event) => setLayerVisibility({ showPre: event.target.checked })}
-            type="checkbox"
+            checked={layerMode === "pre"}
+            name="layer-mode"
+            onChange={() => setLayerMode("pre")}
+            type="radio"
           />{" "}
-          Pre
+          Pre only
         </label>
         <label className="chip">
           <input
-            checked={showPost}
-            onChange={(event) => setLayerVisibility({ showPost: event.target.checked })}
-            type="checkbox"
+            checked={layerMode === "post"}
+            name="layer-mode"
+            onChange={() => setLayerMode("post")}
+            type="radio"
           />{" "}
-          Post
+          Post only
+        </label>
+        <label className="chip">
+          <input
+            checked={layerMode === "both"}
+            name="layer-mode"
+            onChange={() => setLayerMode("both")}
+            type="radio"
+          />{" "}
+          Both
         </label>
       </div>
 

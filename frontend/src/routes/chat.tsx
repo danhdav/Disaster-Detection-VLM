@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
+import { API_BASE } from "../lib/api";
 
 export const Route = createFileRoute("/chat")({
   component: ChatPage,
@@ -24,8 +25,6 @@ const SUGGESTIONS = [
 ];
 
 // ----------- API Logic ------------------------------------------------------
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 const MOCK_RESPONSES: {
   match: RegExp;
