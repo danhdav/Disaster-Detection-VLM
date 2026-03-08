@@ -155,7 +155,13 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       ),
   });
 
-  const analyzeMutation = useMutation({
+  const {
+    mutateAsync: analyzeAsync,
+    reset: resetAnalysisMutation,
+    data: analysisMutationData,
+    isPending: isAnalyzing,
+    error: analysisMutationError,
+  } = useMutation({
     mutationFn: async () => {
       if (!activeDisasterId || !activeSceneId) {
         throw new Error("Please select a disaster and scene first.");
@@ -184,12 +190,17 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveDisaster = React.useCallback(
     async (disasterId: string) => {
-      setActiveDisasterIdState(disasterId);
-      setActiveSceneId(null);
-      setActiveFeatureId(null);
-      analyzeMutation.reset();
+      setActiveDisasterIdState((previousDisasterId) => {
+        if (previousDisasterId === disasterId) {
+          return previousDisasterId;
+        }
+        setActiveSceneId(null);
+        setActiveFeatureId(null);
+        resetAnalysisMutation();
+        return disasterId;
+      });
     },
-    [analyzeMutation],
+    [resetAnalysisMutation],
   );
 
   const disasters = disastersQuery.data?.disasters ?? [];
@@ -210,11 +221,15 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   }, [geoJson, sceneLabels]);
 
   const runAnalysis = React.useCallback(async () => {
-    await analyzeMutation.mutateAsync();
-  }, [analyzeMutation]);
+    await analyzeAsync();
+  }, [analyzeAsync]);
+
+  const clearAnalysis = React.useCallback(() => {
+    resetAnalysisMutation();
+  }, [resetAnalysisMutation]);
 
   const analysisError =
-    analyzeMutation.error instanceof Error ? analyzeMutation.error.message : null;
+    analysisMutationError instanceof Error ? analysisMutationError.message : null;
 
   const value = React.useMemo<MapContextValue>(
     () => ({
@@ -231,8 +246,8 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       showPre,
       showPost,
       layerMode: showPre && showPost ? "both" : showPre ? "pre" : "post",
-      analysisResult: analyzeMutation.data ?? null,
-      isAnalyzing: analyzeMutation.isPending,
+      analysisResult: analysisMutationData ?? null,
+      isAnalyzing,
       analysisError,
       setActiveDisaster,
       setActiveFeature: setActiveFeatureId,
@@ -255,9 +270,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
         setShowPost(true);
       },
       runAnalysis,
-      clearAnalysis: () => {
-        analyzeMutation.reset();
-      },
+      clearAnalysis,
     }),
     [
       disastersQuery.isLoading,
@@ -273,11 +286,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       sceneBounds,
       showPre,
       showPost,
-      analyzeMutation.data,
-      analyzeMutation.isPending,
+      analysisMutationData,
+      isAnalyzing,
       analysisError,
       setActiveDisaster,
-      analyzeMutation,
+      clearAnalysis,
       runAnalysis,
     ],
   );

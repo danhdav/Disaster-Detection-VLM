@@ -1,3 +1,4 @@
+from functools import cache
 import json
 import os
 import base64
@@ -180,6 +181,7 @@ def _openrouter_analyze(
     return str(content_value)
 
 
+@cache
 def _build_dataset_index() -> dict[str, Any]:
     labels_dir, _ = _resolve_data_paths()
     if not labels_dir.exists():

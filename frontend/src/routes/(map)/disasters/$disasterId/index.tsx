@@ -10,20 +10,12 @@ export const Route = createFileRoute("/(map)/disasters/$disasterId/")({
 
 function DisasterRegionPanel() {
   const { disasterId } = Route.useParams();
-  const {
-    setActiveDisaster,
-    sceneLabels,
-    geoJson,
-    isLoadingScene,
-    layerMode,
-    setLayerMode,
-    clearAnalysis,
-  } = useMapContext();
+  const { setActiveDisaster, sceneLabels, geoJson, isLoadingScene, layerMode, setLayerMode } =
+    useMapContext();
 
   React.useEffect(() => {
     void setActiveDisaster(disasterId);
-    clearAnalysis();
-  }, [clearAnalysis, disasterId, setActiveDisaster]);
+  }, [disasterId, setActiveDisaster]);
 
   const metadata = sceneLabels?.post?.metadata ?? sceneLabels?.pre?.metadata ?? {};
   const renderValue = (value: unknown) => {
