@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { FeatureCollection } from "geojson";
 
 import { API_BASE } from "../lib/api";
@@ -37,6 +38,15 @@ interface SceneLabels {
   bounds?: Bounds | null;
   pre?: LabelPhase | null;
   post?: LabelPhase | null;
+}
+
+interface DisastersResponse {
+  disasters: DisasterSummary[];
+}
+
+interface ScenesResponse {
+  scenes: SceneSummary[];
+  recommendedSceneId?: string;
 }
 
 interface AnalyzeResponse {
@@ -98,11 +108,6 @@ function chooseFeatures(labels: SceneLabels | null): LabelFeature[] {
 }
 
 export function MapProvider({ children }: { children: React.ReactNode }) {
-  const [disasters, setDisasters] = React.useState<DisasterSummary[]>([]);
-  const [scenes, setScenes] = React.useState<SceneSummary[]>([]);
-  const [isLoadingDisasters, setIsLoadingDisasters] = React.useState(true);
-  const [isLoadingScene, setIsLoadingScene] = React.useState(false);
-
   const [activeDisasterId, setActiveDisasterIdState] = React.useState<string | null>(null);
   const [activeSceneId, setActiveSceneId] = React.useState<string | null>(null);
   const [activeFeatureId, setActiveFeatureId] = React.useState<string | null>(null);
@@ -110,97 +115,52 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const [showPre, setShowPre] = React.useState(false);
   const [showPost, setShowPost] = React.useState(true);
 
-  const [sceneLabels, setSceneLabels] = React.useState<SceneLabels | null>(null);
+  const disastersQuery = useQuery({
+    queryKey: ["disasters"],
+    queryFn: () => fetchJson<DisastersResponse>(`${API_BASE}/disasters`),
+  });
 
-  const [analysisResult, setAnalysisResult] = React.useState<string | null>(null);
-  const [analysisError, setAnalysisError] = React.useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const scenesQuery = useQuery({
+    queryKey: ["disaster-scenes", activeDisasterId],
+    enabled: Boolean(activeDisasterId),
+    queryFn: () => fetchJson<ScenesResponse>(`${API_BASE}/disasters/${activeDisasterId}/scenes`),
+  });
 
   React.useEffect(() => {
-    let cancelled = false;
+    const scenes = scenesQuery.data?.scenes ?? [];
+    if (scenes.length === 0) {
+      setActiveSceneId(null);
+      return;
+    }
 
-    const loadDisasters = async () => {
-      try {
-        setIsLoadingDisasters(true);
-        const response = await fetchJson<{ disasters: DisasterSummary[] }>(`${API_BASE}/disasters`);
-        if (!cancelled) {
-          setDisasters(response.disasters);
-        }
-      } catch (error) {
-        // Keep UI usable even when backend isn't reachable.
-        if (!cancelled) {
-          setDisasters([]);
-        }
-        console.error(error);
-      } finally {
-        if (!cancelled) {
-          setIsLoadingDisasters(false);
-        }
-      }
-    };
+    const hasExisting =
+      typeof activeSceneId === "string" && scenes.some((scene) => scene.sceneId === activeSceneId);
+    if (hasExisting) return;
 
-    void loadDisasters();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    const sceneToUse =
+      scenesQuery.data?.recommendedSceneId ??
+      scenes.find((scene) => scene.hasFeatures)?.sceneId ??
+      scenes[0]?.sceneId ??
+      null;
 
-  const setActiveDisaster = React.useCallback(async (disasterId: string) => {
-    setActiveDisasterIdState(disasterId);
-    setActiveFeatureId(null);
-    setAnalysisResult(null);
-    setAnalysisError(null);
-    setIsLoadingScene(true);
+    setActiveSceneId(sceneToUse);
+  }, [activeSceneId, scenesQuery.data]);
 
-    try {
-      const scenesResponse = await fetchJson<{
-        scenes: SceneSummary[];
-        recommendedSceneId?: string;
-      }>(`${API_BASE}/disasters/${disasterId}/scenes`);
+  const labelsQuery = useQuery({
+    queryKey: ["scene-labels", activeDisasterId, activeSceneId],
+    enabled: Boolean(activeDisasterId) && Boolean(activeSceneId),
+    queryFn: () =>
+      fetchJson<SceneLabels>(
+        `${API_BASE}/disasters/${activeDisasterId}/scenes/${activeSceneId}/labels`,
+      ),
+  });
 
-      setScenes(scenesResponse.scenes);
-
-      const sceneToUse =
-        scenesResponse.recommendedSceneId ??
-        scenesResponse.scenes.find((scene) => scene.hasFeatures)?.sceneId ??
-        scenesResponse.scenes[0]?.sceneId;
-
-      if (!sceneToUse) {
-        setSceneLabels(null);
-        setActiveSceneId(null);
-        return;
+  const analyzeMutation = useMutation({
+    mutationFn: async () => {
+      if (!activeDisasterId || !activeSceneId) {
+        throw new Error("Please select a disaster and scene first.");
       }
 
-      setActiveSceneId(sceneToUse);
-      const labels = await fetchJson<SceneLabels>(
-        `${API_BASE}/disasters/${disasterId}/scenes/${sceneToUse}/labels`,
-      );
-      setSceneLabels(labels);
-    } finally {
-      setIsLoadingScene(false);
-    }
-  }, []);
-
-  const geoJson = React.useMemo(() => {
-    const features = chooseFeatures(sceneLabels);
-    if (features.length === 0) return emptyFeatureCollection();
-    return labelFeaturesToGeoJson(features);
-  }, [sceneLabels]);
-
-  const sceneBounds = React.useMemo(() => {
-    if (sceneLabels?.bounds && sceneLabels.bounds.length === 4) {
-      return sceneLabels.bounds as Bounds;
-    }
-    return getBoundsFromFeatureCollection(geoJson);
-  }, [geoJson, sceneLabels]);
-
-  const runAnalysis = React.useCallback(async () => {
-    if (!activeDisasterId || !activeSceneId) return;
-
-    setIsAnalyzing(true);
-    setAnalysisResult(null);
-    setAnalysisError(null);
-    try {
       const response = await fetch(`${API_BASE}/analyze`, {
         method: "POST",
         headers: {
@@ -218,20 +178,50 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
         throw new Error(body.error ?? `Analysis failed (${response.status})`);
       }
 
-      setAnalysisResult(body.result?.text ?? "No result text returned.");
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsAnalyzing(false);
+      return body.result?.text ?? "No result text returned.";
+    },
+  });
+
+  const setActiveDisaster = React.useCallback(
+    async (disasterId: string) => {
+      setActiveDisasterIdState(disasterId);
+      setActiveSceneId(null);
+      setActiveFeatureId(null);
+      analyzeMutation.reset();
+    },
+    [analyzeMutation],
+  );
+
+  const disasters = disastersQuery.data?.disasters ?? [];
+  const scenes = scenesQuery.data?.scenes ?? [];
+  const sceneLabels = labelsQuery.data ?? null;
+
+  const geoJson = React.useMemo(() => {
+    const features = chooseFeatures(sceneLabels);
+    if (features.length === 0) return emptyFeatureCollection();
+    return labelFeaturesToGeoJson(features);
+  }, [sceneLabels]);
+
+  const sceneBounds = React.useMemo(() => {
+    if (sceneLabels?.bounds && sceneLabels.bounds.length === 4) {
+      return sceneLabels.bounds as Bounds;
     }
-  }, [activeDisasterId, activeFeatureId, activeSceneId]);
+    return getBoundsFromFeatureCollection(geoJson);
+  }, [geoJson, sceneLabels]);
+
+  const runAnalysis = React.useCallback(async () => {
+    await analyzeMutation.mutateAsync();
+  }, [analyzeMutation]);
+
+  const analysisError =
+    analyzeMutation.error instanceof Error ? analyzeMutation.error.message : null;
 
   const value = React.useMemo<MapContextValue>(
     () => ({
       disasters,
       scenes,
-      isLoadingDisasters,
-      isLoadingScene,
+      isLoadingDisasters: disastersQuery.isLoading,
+      isLoadingScene: scenesQuery.isFetching || labelsQuery.isFetching,
       activeDisasterId,
       activeSceneId,
       activeFeatureId,
@@ -241,8 +231,8 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       showPre,
       showPost,
       layerMode: showPre && showPost ? "both" : showPre ? "pre" : "post",
-      analysisResult,
-      isAnalyzing,
+      analysisResult: analyzeMutation.data ?? null,
+      isAnalyzing: analyzeMutation.isPending,
       analysisError,
       setActiveDisaster,
       setActiveFeature: setActiveFeatureId,
@@ -266,15 +256,15 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       },
       runAnalysis,
       clearAnalysis: () => {
-        setAnalysisResult(null);
-        setAnalysisError(null);
+        analyzeMutation.reset();
       },
     }),
     [
+      disastersQuery.isLoading,
+      scenesQuery.isFetching,
+      labelsQuery.isFetching,
       disasters,
       scenes,
-      isLoadingDisasters,
-      isLoadingScene,
       activeDisasterId,
       activeSceneId,
       activeFeatureId,
@@ -283,10 +273,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       sceneBounds,
       showPre,
       showPost,
-      analysisResult,
-      isAnalyzing,
+      analyzeMutation.data,
+      analyzeMutation.isPending,
       analysisError,
       setActiveDisaster,
+      analyzeMutation,
       runAnalysis,
     ],
   );
