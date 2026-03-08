@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
+import { SystemStatus } from "../../components/SystemStatus";
 import { MapProvider, useMapContext } from "../../context/MapContext";
 import "./-map.css";
 
@@ -51,6 +52,7 @@ function MapLayout() {
 
       <aside className="floating-panel">
         <div className="panel-content">
+          <SystemStatus />
           <Outlet />
         </div>
       </aside>
