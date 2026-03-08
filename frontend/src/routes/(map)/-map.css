@@ -1,8 +1,15 @@
+@import url("https://fonts.googleapis.com/css2?family=Recursive:wght@300;400;500;600;700&display=swap");
+
 body {
   margin: 0;
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font, "Recursive", sans-serif);
   background: #020917;
   color: #eef2ff;
+}
+
+:root {
+  --font: "Recursive", sans-serif;
+  --mono: "Recursive", monospace;
 }
 
 .map-layout {
@@ -86,6 +93,12 @@ body {
   font-size: 13px;
 }
 
+.meta-grid > span:nth-child(2n) {
+  font-family: var(--mono);
+  font-variation-settings: "MONO" 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .result-block {
   white-space: pre-wrap;
   background: rgba(15, 23, 42, 0.8);
@@ -100,6 +113,9 @@ body {
   border-radius: 10px;
   padding: 10px;
   background: rgba(15, 23, 42, 0.72);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .status-head {
@@ -153,4 +169,10 @@ body {
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variation-settings: "MONO" 1;
+  font-variant-numeric: tabular-nums;
 }

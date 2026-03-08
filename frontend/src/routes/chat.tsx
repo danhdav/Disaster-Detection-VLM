@@ -374,7 +374,7 @@ function ChatPage() {
 
 // ----------- Styles --------------------------------------------------
 const chatStyles = `
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Recursive:wght@300;400;500;600;700&display=swap');
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -388,8 +388,8 @@ const chatStyles = `
         --muted:     #5a6070;
         --bot-bg:    #1a1e28;
         --radius:    14px;
-        --font:      'DM Sans', sans-serif;
-        --mono:      'DM Mono', monospace;
+        --font:      'Recursive', sans-serif;
+        --mono:      'Recursive', monospace;
     }
 
     body { background: var(--bg); font-family: var(--font); color: var(--text); }
@@ -452,12 +452,15 @@ const chatStyles = `
         font-size: 18px;
         font-weight: 700;
         font-family: var(--mono);
+        font-variation-settings: "MONO" 1;
     }
     .stat-label {
         font-size: 10px;
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
+        font-family: var(--mono);
+        font-variation-settings: "MONO" 1;
     }
 
     .chat-shell {

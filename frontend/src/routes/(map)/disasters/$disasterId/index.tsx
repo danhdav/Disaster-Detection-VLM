@@ -29,7 +29,7 @@ function DisasterRegionPanel() {
         Back to disasters
       </Link>
 
-      <h2>{disasterId}</h2>
+      <h2 className="mono">{disasterId}</h2>
       {isLoadingScene ? <p>Loading region...</p> : null}
 
       <div className="chip-row" role="radiogroup" aria-label="Raster layer mode">
@@ -89,7 +89,7 @@ function DisasterRegionPanel() {
                 params={{ disasterId, featureId: uid }}
                 to="/disasters/$disasterId/features/$featureId"
               >
-                <strong>{uid}</strong>
+                <strong className="mono">{uid}</strong>
                 <div>{subtype}</div>
               </Link>
             );

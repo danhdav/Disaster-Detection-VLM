@@ -47,7 +47,7 @@ function FeatureDetailPanel() {
         Back to region
       </Link>
 
-      <h2>Structure</h2>
+      <h2 className="mono">Structure</h2>
       <div className="meta-grid">
         <span>UID</span>
         <span>{featureId}</span>

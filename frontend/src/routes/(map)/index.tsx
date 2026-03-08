@@ -25,9 +25,9 @@ function DisasterListPanel() {
               to="/disasters/$disasterId"
               params={{ disasterId: disaster.id }}
             >
-              <strong>{disaster.id}</strong>
+              <strong className="mono">{disaster.id}</strong>
               <div>{disaster.disasterType ?? "unknown type"}</div>
-              <div>{disaster.sceneCount} scenes</div>
+              <div className="mono">{disaster.sceneCount} scenes</div>
             </Link>
           ))}
         </div>
