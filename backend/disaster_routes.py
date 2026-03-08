@@ -241,6 +241,59 @@ def _build_dataset_index() -> dict[str, Any]:
 
 
 def register_disaster_routes(app):
+    @app.route("/debug/health", methods=["GET"])
+    def get_debug_health():
+        labels_dir, images_dir = _resolve_data_paths()
+        dataset = _build_dataset_index()
+
+        labels_count = len(list(labels_dir.glob("*.json"))) if labels_dir.exists() else 0
+        png_count = len(list(images_dir.glob("*.png"))) if images_dir.exists() else 0
+        jpg_count = len(list(images_dir.glob("*.jpg"))) if images_dir.exists() else 0
+        jpeg_count = len(list(images_dir.glob("*.jpeg"))) if images_dir.exists() else 0
+
+        scenes_total = 0
+        scenes_with_features = 0
+        for disaster in dataset["disasters"].values():
+            scenes = list(disaster["scenes"].values())
+            scenes_total += len(scenes)
+            scenes_with_features += sum(1 for scene in scenes if scene["hasFeatures"])
+
+        configured_model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+        has_openrouter_key = bool(os.getenv("OPENROUTER_API_KEY"))
+
+        return (
+            jsonify(
+                {
+                    "status": "ok",
+                    "paths": {
+                        "dataPath": os.getenv("DATA_PATH", _default_data_path()),
+                        "labelsDir": str(labels_dir),
+                        "imagesDir": str(images_dir),
+                        "labelsExists": labels_dir.exists(),
+                        "imagesExists": images_dir.exists(),
+                    },
+                    "counts": {
+                        "disasters": len(dataset["disasters"]),
+                        "scenes": scenes_total,
+                        "scenesWithFeatures": scenes_with_features,
+                        "labelJsonFiles": labels_count,
+                        "imageFiles": {
+                            "png": png_count,
+                            "jpg": jpg_count,
+                            "jpeg": jpeg_count,
+                            "total": png_count + jpg_count + jpeg_count,
+                        },
+                    },
+                    "openRouter": {
+                        "hasApiKey": has_openrouter_key,
+                        "model": configured_model,
+                    },
+                    "errors": dataset["errors"],
+                }
+            ),
+            200,
+        )
+
     @app.route("/disasters", methods=["GET"])
     def get_disasters():
         dataset = _build_dataset_index()
