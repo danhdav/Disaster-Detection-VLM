@@ -17,81 +17,90 @@ interface Message {
 }
 
 const SUGGESTIONS = [
-    "How many structures were destroyed?",
-    "How many buildings show major damage?",
-    "How many buildings were undamaged?",
-    "What steps are recommended next?"
-]
+  "How many structures were destroyed?",
+  "How many buildings show major damage?",
+  "How many buildings were undamaged?",
+  "What steps are recommended next?",
+];
 
 // ----------- API Logic ------------------------------------------------------
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
-const MOCK_RESPONSES: { 
-    match: RegExp; 
-    text: string; 
-    stats: Record<string, string | number> | null; }[] = [
-    {
-        match: /destroy|destroyed/i, 
-        text: "In the current scene, **47 structures** were classified as destroyed, making 23% of all assessed buildings.", 
-        stats: { destroyed: 47, total_assessed: 204 } },
-    { 
-        match: /major.?damage|damage.*major/i, 
-        text: "**31 buildings** show signs of major damage in the selected area.", 
-        stats: { major_damage: 31 } },
-    { 
-        match: /minor.?damage|damage.*minor/i, 
-        text: "**18 structures** show signs of minor damage, mostly in the northeastern quadrant.", 
-        stats: { minor_damage: 18 } },
-    { 
-        match: /no.?damage|undamaged|percent/i, 
-        text: "Around 54% of the assessed buildings **108 structures** show no damage.", 
-        stats: { no_damage: 108 } },
-    { 
-        match: /fema|next step|recommend/i, 
-        text: "Based on FEMA protocals, FEMA recommends prioritizing **destroyed** or **major-damage** structures for immediate inspection.", 
-        stats: null },
+const MOCK_RESPONSES: {
+  match: RegExp;
+  text: string;
+  stats: Record<string, string | number> | null;
+}[] = [
+  {
+    match: /destroy|destroyed/i,
+    text: "In the current scene, **47 structures** were classified as destroyed, making 23% of all assessed buildings.",
+    stats: { destroyed: 47, total_assessed: 204 },
+  },
+  {
+    match: /major.?damage|damage.*major/i,
+    text: "**31 buildings** show signs of major damage in the selected area.",
+    stats: { major_damage: 31 },
+  },
+  {
+    match: /minor.?damage|damage.*minor/i,
+    text: "**18 structures** show signs of minor damage, mostly in the northeastern quadrant.",
+    stats: { minor_damage: 18 },
+  },
+  {
+    match: /no.?damage|undamaged|percent/i,
+    text: "Around 54% of the assessed buildings **108 structures** show no damage.",
+    stats: { no_damage: 108 },
+  },
+  {
+    match: /fema|next step|recommend/i,
+    text: "Based on FEMA protocals, FEMA recommends prioritizing **destroyed** or **major-damage** structures for immediate inspection.",
+    stats: null,
+  },
 ];
 
 const DAMAGE_COLORS: Record<string, string> = {
-    destroyed: "#ef4444",
-    major_damage: "#f97316",
-    minor_damage: "#eab308",
-    no_damage: "#22c55e",
-    un_classified: "#6b7280",
-    total_assessed: "#3b82f6",
-}
+  destroyed: "#ef4444",
+  major_damage: "#f97316",
+  minor_damage: "#eab308",
+  no_damage: "#22c55e",
+  un_classified: "#6b7280",
+  total_assessed: "#3b82f6",
+};
 
 async function sendChatMessage(
   message: string,
-  history: { role: Role; content: string }[]
-): Promise<{ 
-    text: string; 
-    stats: Record<string, string | number> | null; 
-    backendConnected: boolean }> {
+  history: { role: Role; content: string }[],
+): Promise<{
+  text: string;
+  stats: Record<string, string | number> | null;
+  backendConnected: boolean;
+}> {
   try {
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        message, 
-        conversation_history: history 
+      body: JSON.stringify({
+        message,
+        conversation_history: history,
       }),
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    return { 
-        text: data.response ?? data.message, 
-        stats: data.stats ?? null, 
-        backendConnected: true 
+    return {
+      text: data.response ?? data.message,
+      stats: data.stats ?? null,
+      backendConnected: true,
     };
   } catch {
     await new Promise((r) => setTimeout(r, 800));
 
     const match = MOCK_RESPONSES.find((r) => r.match.test(message.toLowerCase()));
     return {
-      text: match?.text ?? "I can help you query disaster assessment data. Try asking about destroyed structures, damage levels, or scene statistics.",
+      text:
+        match?.text ??
+        "I can help you query disaster assessment data. Try asking about destroyed structures, damage levels, or scene statistics.",
       stats: match?.stats ?? null,
       backendConnected: false,
     };
@@ -101,19 +110,15 @@ async function sendChatMessage(
 // ----------- Components ------------------------------------------------------
 
 function SuggestionChips({ onSelect }: { onSelect: (text: string) => void }) {
-    return (
-        <div className="suggestions">
-            {SUGGESTIONS.map((s) => (
-                <button
-                    key={s}
-                    className="chip"
-                    onClick={() => onSelect(s)}
-                >
-                    {s}
-                </button>
-            ))}
-        </div>
-    );
+  return (
+    <div className="suggestions">
+      {SUGGESTIONS.map((s) => (
+        <button key={s} className="chip" onClick={() => onSelect(s)}>
+          {s}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function TypingIndicator() {
@@ -127,22 +132,24 @@ function TypingIndicator() {
 }
 
 function StatCards({ stats }: { stats: Record<string, string | number> }) {
-    return (
-        <div className="stat-cards">
-            {Object.entries(stats).map(([key, val]) => (
-                <div
-                    key={key}
-                    className="stat-card"
-                    style={{
-                        borderLeftColor: DAMAGE_COLORS[key] ?? "#6b7280",
-                    }}
-                >
-                    <span className="stat-num" style={{ color: DAMAGE_COLORS[key] ?? "#e5e7eb" }}>{val}</span>
-                    <span className="stat-label">{key.replace(/_/g, " ")}</span>
-                </div>
-            ))}
+  return (
+    <div className="stat-cards">
+      {Object.entries(stats).map(([key, val]) => (
+        <div
+          key={key}
+          className="stat-card"
+          style={{
+            borderLeftColor: DAMAGE_COLORS[key] ?? "#6b7280",
+          }}
+        >
+          <span className="stat-num" style={{ color: DAMAGE_COLORS[key] ?? "#e5e7eb" }}>
+            {val}
+          </span>
+          <span className="stat-label">{key.replace(/_/g, " ")}</span>
         </div>
-    );
+      ))}
+    </div>
+  );
 }
 
 function MessageBubble({ message }: { message: Message }) {
@@ -151,7 +158,7 @@ function MessageBubble({ message }: { message: Message }) {
     <div className={`message-row ${isUser ? "user" : "assistant"}`}>
       {!isUser && (
         <div className="avatar assistant-avatar">
-            <svg
+          <svg
             width="18"
             height="18"
             viewBox="0 0 24 24"
@@ -170,17 +177,17 @@ function MessageBubble({ message }: { message: Message }) {
           {message.stats && <StatCards stats={message.stats} />}
         </div>
         <div className={`msg-meta ${isUser ? "user" : ""}`}>
-            <span className="timestamp">
-                {message.timestamp.toLocaleTimeString([], { 
-                    hour: "2-digit", 
-                    minute: "2-digit" 
-                })}
-            </span>
+          <span className="timestamp">
+            {message.timestamp.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
         </div>
       </div>
       {isUser && (
         <div className="avatar user-avatar">
-            <svg
+          <svg
             width="18"
             height="18"
             viewBox="0 0 24 24"
@@ -192,7 +199,7 @@ function MessageBubble({ message }: { message: Message }) {
             <circle cx="12" cy="7" r="4" />
           </svg>
         </div>
-        )}
+      )}
     </div>
   );
 }
@@ -204,7 +211,8 @@ function ChatPage() {
     {
       id: "0",
       role: "assistant",
-      content: "Hi, I am your disaster assessment assistant. Select a question below or type your own question.",
+      content:
+        "Hi, I am your disaster assessment assistant. Select a question below or type your own question.",
       timestamp: new Date(),
     },
   ]);
@@ -254,7 +262,7 @@ function ChatPage() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      void sendMessage();
     }
   };
 
@@ -274,7 +282,14 @@ function ChatPage() {
         {/* Header */}
         <header className="chat-header">
           <div className="header-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
           </div>
@@ -291,15 +306,24 @@ function ChatPage() {
           ))}
 
           {showSuggestions && (
-            <SuggestionChips onSelect={(text) => {
-              sendMessage(text); // pass text directly so it doesn't rely on state timing
-            }} />
+            <SuggestionChips
+              onSelect={(text) => {
+                sendMessage(text); // pass text directly so it doesn't rely on state timing
+              }}
+            />
           )}
 
           {isTyping && (
             <div className="typing-row">
               <div className="avatar assistant-avatar">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <circle cx="12" cy="12" r="3" />
                   <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
                 </svg>
@@ -326,11 +350,18 @@ function ChatPage() {
             />
             <button
               className="send-btn"
-              onClick={() => sendMessage()}
+              onClick={() => void sendMessage()}
               disabled={!input.trim() || isTyping}
               aria-label="Send message"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
                 <path d="M22 2L11 13" />
                 <path d="M22 2L15 22 11 13 2 9l20-7z" />
               </svg>
@@ -622,4 +653,4 @@ const chatStyles = `
     .send-btn:hover { background: var(--accent2); }
     .send-btn:active { transform: scale(0.93); }
     .send-btn:disabled { background: var(--border); cursor: not-allowed; }        
-    `
+    `;
