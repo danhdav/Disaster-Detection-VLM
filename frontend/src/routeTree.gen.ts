@@ -8,52 +8,70 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as baseIndexRouteImport } from "./routes/(base)/index";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as ChatRouteImport } from './routes/chat'
+import { Route as baseIndexRouteImport } from './routes/(base)/index'
 
-const baseIndexRoute = baseIndexRouteImport.update({
-  id: "/(base)/",
-  path: "/",
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
+const baseIndexRoute = baseIndexRouteImport.update({
+  id: '/(base)/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof baseIndexRoute;
+  '/chat': typeof ChatRoute
+  '/': typeof baseIndexRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof baseIndexRoute;
+  '/chat': typeof ChatRoute
+  '/': typeof baseIndexRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  "/(base)/": typeof baseIndexRoute;
+  __root__: typeof rootRouteImport
+  '/chat': typeof ChatRoute
+  '/(base)/': typeof baseIndexRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/";
-  fileRoutesByTo: FileRoutesByTo;
-  to: "/";
-  id: "__root__" | "/(base)/";
-  fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/chat' | '/'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/chat' | '/'
+  id: '__root__' | '/chat' | '/(base)/'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  baseIndexRoute: typeof baseIndexRoute;
+  ChatRoute: typeof ChatRoute
+  baseIndexRoute: typeof baseIndexRoute
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/(base)/": {
-      id: "/(base)/";
-      path: "/";
-      fullPath: "/";
-      preLoaderRoute: typeof baseIndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(base)/': {
+      id: '/(base)/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof baseIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  ChatRoute: ChatRoute,
   baseIndexRoute: baseIndexRoute,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()
