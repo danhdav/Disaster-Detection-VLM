@@ -6,7 +6,6 @@ backend/.python-version
 backend/.env
 
 backend/cnn/weights/
-backend/data/
 
 frontend/node_modules
 frontend/.tanstack
