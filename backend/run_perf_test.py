@@ -92,6 +92,8 @@ def run(cnn_only: bool, limit: int) -> None:
 
     correct_cnn = 0
     correct_vlm = 0
+    vlm_grounded_correct = vlm_grounded_total = 0
+    vlm_blind_correct    = vlm_blind_total    = 0
     total = len(cases)
 
     print("=" * 70)
@@ -112,12 +114,21 @@ def run(cnn_only: bool, limit: int) -> None:
         correct_cnn += int(c_ok)
 
         vlm_label = None
+        vlm_mode  = None
+        out       = {}
         if pipeline:
             try:
                 out       = pipeline.assess(pre_bytes, post_bytes)
                 vlm_label = out["vlm"].get("damage_level", "?")
+                vlm_mode  = out.get("vlm_mode", "?")
                 v_ok      = vlm_label == gt
                 correct_vlm += int(v_ok)
+                if vlm_mode == "grounded":
+                    vlm_grounded_total   += 1
+                    vlm_grounded_correct += int(v_ok)
+                else:
+                    vlm_blind_total   += 1
+                    vlm_blind_correct += int(v_ok)
             except Exception as e:
                 vlm_label = f"ERROR({e})"
                 v_ok      = False
@@ -142,15 +153,16 @@ def run(cnn_only: bool, limit: int) -> None:
               f"ssim_dissim={geom.get('ssim_dissim','n/a')}")
 
         if vlm_label and not vlm_label.startswith("ERROR"):
-            vlm_tag = "✓ CORRECT" if v_ok else f"✗ wrong (pred={vlm_label})"
-            print(f"\n  VLM prediction : {vlm_label.upper()}  → {vlm_tag}")
+            vlm_tag  = "✓ CORRECT" if v_ok else f"✗ wrong (pred={vlm_label})"
+            mode_tag = f"[{vlm_mode.upper()}]" if vlm_mode else ""
+            print(f"\n  VLM {mode_tag} : {vlm_label.upper()}  → {vlm_tag}")
             if "vlm" in out:
                 v = out["vlm"]
-                print(f"  Reasoning      : {v.get('reasoning','')[:120]}")
+                print(f"  Reasoning  : {v.get('reasoning','')[:120]}")
                 indicators = v.get("damage_indicators", [])
                 if indicators:
-                    print(f"  Indicators     : {', '.join(indicators[:3])}")
-                print(f"  Latency        : {out.get('latency_ms')} ms  |  Tokens: {out.get('tokens_used')}")
+                    print(f"  Indicators : {', '.join(indicators[:3])}")
+                print(f"  Latency    : {out.get('latency_ms')} ms  |  Tokens: {out.get('tokens_used')}")
         elif vlm_label:
             print(f"\n  VLM : {vlm_label}")
 
@@ -163,6 +175,14 @@ def run(cnn_only: bool, limit: int) -> None:
     print(f"  CNN accuracy : {correct_cnn}/{total}  ({correct_cnn/total:.0%})")
     if pipeline:
         print(f"  VLM accuracy : {correct_vlm}/{total}  ({correct_vlm/total:.0%})")
+        if vlm_grounded_total:
+            print(f"    GROUNDED   : {vlm_grounded_correct}/{vlm_grounded_total}"
+                  f"  ({vlm_grounded_correct/vlm_grounded_total:.0%})"
+                  f"  [CNN conf >= 75%]")
+        if vlm_blind_total:
+            print(f"    BLIND      : {vlm_blind_correct}/{vlm_blind_total}"
+                  f"  ({vlm_blind_correct/vlm_blind_total:.0%})"
+                  f"  [CNN conf <  75%]")
     print(f"{'=' * 70}")
 
 
