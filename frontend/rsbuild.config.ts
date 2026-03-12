@@ -5,6 +5,9 @@ import { tanstackRouter } from "@tanstack/router-plugin/rspack";
 // Docs: https://rsbuild.rs/config/
 export default defineConfig({
   plugins: [pluginReact()],
+  resolve: {
+    alias: { "@": "./src" },
+  },
   tools: {
     rspack: {
       plugins: [
