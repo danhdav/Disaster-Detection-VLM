@@ -1,4 +1,4 @@
-# Backend Setup
+# Backend
 
 Clone this repository
 
