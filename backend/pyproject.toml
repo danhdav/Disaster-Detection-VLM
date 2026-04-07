@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "a2wsgi>=1.10.10",
     "boto3>=1.42.62",
     "fastapi>=0.135.1",
     "flask>=3.1.3",

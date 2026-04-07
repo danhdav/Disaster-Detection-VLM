@@ -1,18 +1,26 @@
+"""FastAPI VLM / OpenRouter analysis endpoints."""
+
+from __future__ import annotations
+
+import json
 import os
 from typing import Any
-import boto3
-from fastapi import FastAPI, HTTPException
-from flask import json
-from pydantic import BaseModel, Field
-from flask import jsonify, request
+
 import requests
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
-api_key = os.getenv("OPENROUTER_API_KEY")
-model_name = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+from parse import find_feature_by_uid
+from storage import (
+    fetch_scene_label_documents,
+    label_phase_from_document,
+    presigned_scene_image_urls,
+)
 
-app = FastAPI()
+app = FastAPI(title="VLM API", version="1.0.0")
 
-prompt_text = (
+_PROMPT_PREFIX = (
     "You are a disaster damage analyst. Compare pre-disaster and post-disaster satellite images "
     "for one structure and provide:\n"
     "1) damage classification\n"
@@ -21,6 +29,7 @@ prompt_text = (
     "4) immediate response recommendation\n\n"
 )
 
+
 def openrouter_analyze(
     feature: dict[str, Any] | None,
     pre_data_url: str | None,
@@ -28,23 +37,24 @@ def openrouter_analyze(
     disaster_id: str,
     scene_id: str,
 ) -> str:
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    if not model_name:
+    model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    if not model:
         raise RuntimeError("OPENROUTER_MODEL is not set")
 
     feature_properties = (feature or {}).get("properties", {})
     feature_wkt = (feature or {}).get("wkt")
 
-    prompt_text_info = (
-        f"Disaster: {disaster_id}\n"
-        f"Scene: {scene_id}\n"
-        f"Feature metadata: {json.dumps(feature_properties)}\n"
-        f"Feature geometry (WKT): {feature_wkt}\n"
+    prompt = (
+        _PROMPT_PREFIX
+        + f"Disaster: {disaster_id}\n"
+        + f"Scene: {scene_id}\n"
+        + f"Feature metadata: {json.dumps(feature_properties)}\n"
+        + f"Feature geometry (WKT): {feature_wkt}\n"
     )
-
-    prompt = prompt_text + prompt_text_info
 
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
     if pre_data_url:
@@ -55,7 +65,7 @@ def openrouter_analyze(
         content.append({"type": "image_url", "image_url": {"url": post_data_url}})
 
     payload = {
-        "model": model_name,
+        "model": model,
         "messages": [{"role": "user", "content": content}],
         "temperature": 0.2,
     }
@@ -85,35 +95,98 @@ def openrouter_analyze(
         return "\n".join(parts).strip()
     return str(content_value)
 
-@app.post("/analyze")
-async def analyze_with_openrouter(payload: dict[str, Any]):
-    disaster_id = payload.get("disasterId")
-    scene_id = payload.get("sceneId")
-    feature_id = payload.get("featureId")
 
-    if not disaster_id or not scene_id:
-        raise HTTPException(status_code=400, detail="disasterId and sceneId are required")
+class AnalyzeRequest(BaseModel):
+    disasterId: str = Field(min_length=1)
+    sceneId: str = Field(min_length=1)
+    featureId: str | None = None
+    preDataUrl: str | None = None
+    postDataUrl: str | None = None
+    feature: dict[str, Any] | None = None
+
+
+@app.post("/analyze", response_model=None)
+def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONResponse:
+    model_name = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+
+    try:
+        pre_doc, post_doc = fetch_scene_label_documents(body.disasterId, body.sceneId)
+    except RuntimeError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "error": str(exc)},
+        )
+
+    if pre_doc is None and post_doc is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": "error",
+                "error": (
+                    f"No label documents in MongoDB for disaster '{body.disasterId}' "
+                    f"and scene '{body.sceneId}' (expected metadata.img_name "
+                    f"{body.sceneId}_pre_disaster.png and/or {body.sceneId}_post_disaster.png)."
+                ),
+            },
+        )
+
+    pre_phase = label_phase_from_document(pre_doc)
+    post_phase = label_phase_from_document(post_doc)
+
+    pre_data_url = body.preDataUrl
+    post_data_url = body.postDataUrl
+
+    if pre_data_url is None or post_data_url is None:
+        try:
+            urls = presigned_scene_image_urls(body.sceneId)
+            if pre_data_url is None:
+                pre_data_url = urls.get("pre_image_url")
+            if post_data_url is None:
+                post_data_url = urls.get("post_image_url")
+        except RuntimeError as exc:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "error": str(exc)},
+            )
+        except FileNotFoundError as exc:
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "error": f"S3 imagery: {exc}"},
+            )
+
+    feature = body.feature
+    if feature is None and body.featureId:
+        feature = find_feature_by_uid(pre_phase, post_phase, body.featureId)
 
     try:
         analysis_text = openrouter_analyze(
-            feature=None,
-            pre_data_url=None,
-            post_data_url=None,
-            disaster_id=disaster_id,
-            scene_id=scene_id,
+            feature=feature,
+            pre_data_url=pre_data_url,
+            post_data_url=post_data_url,
+            disaster_id=body.disasterId,
+            scene_id=body.sceneId,
         )
     except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return JSONResponse(
+            status_code=502,
+            content={"status": "error", "error": f"OpenRouter request failed: {exc}"},
+        )
+    except Exception as exc:  # pragma: no cover - runtime guard
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(exc)},
+        )
 
     return {
         "status": "ok",
         "result": {
             "text": analysis_text,
             "model": model_name,
-            "sceneId": scene_id,
-            "disasterId": disaster_id,
-            "featureId": feature_id,
+            "sceneId": body.sceneId,
+            "disasterId": body.disasterId,
+            "featureId": body.featureId,
+            "hasPreImage": bool(pre_data_url),
+            "hasPostImage": bool(post_data_url),
+            "dataSource": "mongodb+s3",
         },
     }
