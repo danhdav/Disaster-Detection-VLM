@@ -33,8 +33,8 @@ const MOCK_RESPONSES: {
 }[] = [
   {
     match: /destroy|destroyed/i,
-    text: "In the current scene, **47 structures** were classified as destroyed, making 23% of all assessed buildings.",
-    stats: { destroyed: 47, total_assessed: 204 },
+    text: "In the current scene, **57 structures** were classified as destroyed, making 23% of all assessed buildings.",
+    stats: { destroyed: 57, total_assessed: 204 },
   },
   {
     match: /major.?damage|damage.*major/i,
