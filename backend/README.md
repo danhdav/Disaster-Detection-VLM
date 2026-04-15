@@ -1,6 +1,7 @@
 # Backend
 
 # Package Manager
+
 Install [uv](https://docs.astral.sh/uv/) for package management.
 
 Uv contains a configuration file to load in the required libraries. Sync the libraries from pyproject.toml with:
@@ -13,6 +14,7 @@ Run the flask server:
 `uv run python server.py`
 
 # AWS
+
 The AWS CLI must be installed on your system. When first starting out, setup using `aws configure` is required.
 Enter the Keys as prompted, and skip the region and output sections.
 
@@ -22,14 +24,25 @@ In the Access keys section, you may need to generate new access and secret keys 
 NOTE: these keys are not hardcoded as environmental variables nor in the program.
 
 # Environmental Variables
+
 An example.env is given and should be the outline for what values to include in your local development setup.
 
 As far as deployment, a "prod" environment has been created on GitHub (see Settings -> Environments). This environment will be used to push workflows that are production-ready.
 Github Secrets will be used to replace the .env file convention for local development. Each environmental variable will instead be assigned via the repository secrets section (see Settings -> GitHub Secrets).
 Note that any environment-specific secrets will take precedence over repository secrets. For now, I have assigned the environmental variables as repository secrets.
 
-# MongoDB
+# Database
+
 The existing dataset and the ground truth data are stored in the collection belonging to the cluster (see environment variables for the specific names). You can connect and see the dataset using the [Compass app](https://www.mongodb.com/try/download/shell) (if you are on Windows, MacOs, Ubuntu, or RedHat) or my preferred way via [VS Code](https://www.mongodb.com/try/download/vs-code-extension). Simply enter the connection string (and ensure the username and password within the string are correct) and it should redirect you to the cluster listing.
 
+Redis will be used to do local caching. Install redis and ensure it is properly running with `redis-cli`.
+You can test your connection with:
+
+```
+127.0.0.1:6379> ping
+PONG
+```
+
 # OpenRouter
+
 The VLM and Chatbot will both be using models from OpenRouter.

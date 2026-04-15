@@ -37,13 +37,13 @@ class ChatApiRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_history: list[ChatTurn] = Field(default_factory=list)
 
-
-def _openrouter_chat_completion(messages: list[dict[str, Any]]) -> str:
+# Send chat request to OpenRouter and return the response
+def openrouter_chat(messages: list[dict[str, Any]]) -> str:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    model = os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-4o-mini")
+    model = os.getenv("OPENROUTER_CHAT_MODEL")
     payload = {
         "model": model,
         "messages": messages,
@@ -77,7 +77,7 @@ def _openrouter_chat_completion(messages: list[dict[str, Any]]) -> str:
 def index() -> dict[str, str]:
     return {"message": "Chatbot API", "docs": "/docs"}
 
-
+# Create a new chat session and return its ID
 @app.post("/chat/sessions", status_code=201)
 def create_session() -> dict[str, str]:
     session_id = str(uuid4())
@@ -85,6 +85,7 @@ def create_session() -> dict[str, str]:
     return {"session_id": session_id}
 
 
+# Delete a session and its history (run for server restarts or cleanup)
 @app.delete("/chat/sessions/{session_id}")
 def delete_session(session_id: str) -> dict[str, str]:
     if session_id not in chat_sessions:
@@ -93,12 +94,12 @@ def delete_session(session_id: str) -> dict[str, str]:
     del chat_sessions[session_id]
     return {"message": f"Session {session_id} deleted"}
 
-
+# Get all chat sessions and their histories (for debugging; not paginated)
 @app.get("/chat/history")
 def get_all_history() -> dict[str, dict[str, list[dict[str, str]]]]:
     return chat_sessions
 
-
+# Get the chat history for a specific session
 @app.get("/chat/history/{session_id}", response_model=SessionHistoryResponse)
 def get_session_history(session_id: str) -> SessionHistoryResponse:
     history = chat_sessions.get(session_id)
@@ -108,6 +109,7 @@ def get_session_history(session_id: str) -> SessionHistoryResponse:
     return SessionHistoryResponse(session_id=session_id, history=history)
 
 
+# Add to a session's chat history; should be called after every message exchange (user prompt + assistant response)
 @app.post("/chat/history/{session_id}", response_model=SessionHistoryResponse)
 def add_to_history(session_id: str, message: ChatMessageIn) -> SessionHistoryResponse:
     if session_id not in chat_sessions:
@@ -120,10 +122,10 @@ def add_to_history(session_id: str, message: ChatMessageIn) -> SessionHistoryRes
 
     return SessionHistoryResponse(session_id=session_id, history=session_history)
 
-
+# Call this endpoint every time a new chat is sent
 @app.post("/api/chat")
 def api_chat(body: ChatApiRequest) -> dict[str, Any]:
-    """Endpoint used by the frontend chat page (`conversation_history` + `message`)."""
+    # System prompt (runs before user prompt at the start of every conversation)
     system = (
         "You are an assistant for disaster damage assessment from satellite imagery. "
         "Answer clearly and concisely. If you cite numbers, note they are illustrative "
@@ -138,7 +140,7 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
     messages.append({"role": "user", "content": body.message})
 
     try:
-        text = _openrouter_chat_completion(messages)
+        text = openrouter_chat(messages)
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}") from exc
     except RuntimeError as exc:

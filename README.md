@@ -3,11 +3,12 @@
 ## Setup
 
 - Frontend: Follow the instructions in the [frontend README](./frontend/README.md) to set up the frontend application.
-- Backend: TODO - see ticket SEN-30
+- Backend: Follow the instructions in the [frontend README](./backend/README.md) to set up the frontend application.
 
 ## Misc. notes + diagrams
 
-### Data pipeline DAG flow 
+### Data pipeline DAG flow
+
 ```mermaid
 flowchart LR
     PARAM["DAG Run Param: folder_path <br/><i>(path to folder with dataset images + JSON metadata)</i>"]
