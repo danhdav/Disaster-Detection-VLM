@@ -8,52 +8,148 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as baseIndexRouteImport } from "./routes/(base)/index";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as ChatRouteImport } from './routes/chat'
+import { Route as mapRouteRouteImport } from './routes/(map)/route'
+import { Route as mapIndexRouteImport } from './routes/(map)/index'
+import { Route as mapDisastersDisasterIdIndexRouteImport } from './routes/(map)/disasters/$disasterId/index'
+import { Route as mapDisastersDisasterIdFeaturesFeatureIdRouteImport } from './routes/(map)/disasters/$disasterId/features/$featureId'
 
-const baseIndexRoute = baseIndexRouteImport.update({
-  id: "/(base)/",
-  path: "/",
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
+const mapRouteRoute = mapRouteRouteImport.update({
+  id: '/(map)',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const mapIndexRoute = mapIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => mapRouteRoute,
+} as any)
+const mapDisastersDisasterIdIndexRoute =
+  mapDisastersDisasterIdIndexRouteImport.update({
+    id: '/disasters/$disasterId/',
+    path: '/disasters/$disasterId/',
+    getParentRoute: () => mapRouteRoute,
+  } as any)
+const mapDisastersDisasterIdFeaturesFeatureIdRoute =
+  mapDisastersDisasterIdFeaturesFeatureIdRouteImport.update({
+    id: '/disasters/$disasterId/features/$featureId',
+    path: '/disasters/$disasterId/features/$featureId',
+    getParentRoute: () => mapRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof baseIndexRoute;
+  '/chat': typeof ChatRoute
+  '/': typeof mapIndexRoute
+  '/disasters/$disasterId/': typeof mapDisastersDisasterIdIndexRoute
+  '/disasters/$disasterId/features/$featureId': typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof baseIndexRoute;
+  '/chat': typeof ChatRoute
+  '/': typeof mapIndexRoute
+  '/disasters/$disasterId': typeof mapDisastersDisasterIdIndexRoute
+  '/disasters/$disasterId/features/$featureId': typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  "/(base)/": typeof baseIndexRoute;
+  __root__: typeof rootRouteImport
+  '/(map)': typeof mapRouteRouteWithChildren
+  '/chat': typeof ChatRoute
+  '/(map)/': typeof mapIndexRoute
+  '/(map)/disasters/$disasterId/': typeof mapDisastersDisasterIdIndexRoute
+  '/(map)/disasters/$disasterId/features/$featureId': typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/";
-  fileRoutesByTo: FileRoutesByTo;
-  to: "/";
-  id: "__root__" | "/(base)/";
-  fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths:
+    | '/chat'
+    | '/'
+    | '/disasters/$disasterId/'
+    | '/disasters/$disasterId/features/$featureId'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/chat'
+    | '/'
+    | '/disasters/$disasterId'
+    | '/disasters/$disasterId/features/$featureId'
+  id:
+    | '__root__'
+    | '/(map)'
+    | '/chat'
+    | '/(map)/'
+    | '/(map)/disasters/$disasterId/'
+    | '/(map)/disasters/$disasterId/features/$featureId'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  baseIndexRoute: typeof baseIndexRoute;
+  mapRouteRoute: typeof mapRouteRouteWithChildren
+  ChatRoute: typeof ChatRoute
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/(base)/": {
-      id: "/(base)/";
-      path: "/";
-      fullPath: "/";
-      preLoaderRoute: typeof baseIndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(map)': {
+      id: '/(map)'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof mapRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(map)/': {
+      id: '/(map)/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof mapIndexRouteImport
+      parentRoute: typeof mapRouteRoute
+    }
+    '/(map)/disasters/$disasterId/': {
+      id: '/(map)/disasters/$disasterId/'
+      path: '/disasters/$disasterId'
+      fullPath: '/disasters/$disasterId/'
+      preLoaderRoute: typeof mapDisastersDisasterIdIndexRouteImport
+      parentRoute: typeof mapRouteRoute
+    }
+    '/(map)/disasters/$disasterId/features/$featureId': {
+      id: '/(map)/disasters/$disasterId/features/$featureId'
+      path: '/disasters/$disasterId/features/$featureId'
+      fullPath: '/disasters/$disasterId/features/$featureId'
+      preLoaderRoute: typeof mapDisastersDisasterIdFeaturesFeatureIdRouteImport
+      parentRoute: typeof mapRouteRoute
+    }
   }
 }
 
+interface mapRouteRouteChildren {
+  mapIndexRoute: typeof mapIndexRoute
+  mapDisastersDisasterIdIndexRoute: typeof mapDisastersDisasterIdIndexRoute
+  mapDisastersDisasterIdFeaturesFeatureIdRoute: typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
+}
+
+const mapRouteRouteChildren: mapRouteRouteChildren = {
+  mapIndexRoute: mapIndexRoute,
+  mapDisastersDisasterIdIndexRoute: mapDisastersDisasterIdIndexRoute,
+  mapDisastersDisasterIdFeaturesFeatureIdRoute:
+    mapDisastersDisasterIdFeaturesFeatureIdRoute,
+}
+
+const mapRouteRouteWithChildren = mapRouteRoute._addFileChildren(
+  mapRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  baseIndexRoute: baseIndexRoute,
-};
+  mapRouteRoute: mapRouteRouteWithChildren,
+  ChatRoute: ChatRoute,
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()

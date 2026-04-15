@@ -10,3 +10,4 @@ frontend/.tanstack
 .vscode/*
 !.vscode/extensions.json
 .idea
+.zed/
