@@ -7,7 +7,7 @@ export const Route = createFileRoute("/(map)/")({
 });
 
 function DisasterListPanel() {
-  const { disasters, isLoadingDisasters } = useMapContext();
+  const { disasters, isLoadingDisasters, setActiveDisaster } = useMapContext();
 
   return (
     <>
@@ -24,6 +24,9 @@ function DisasterListPanel() {
               key={disaster.id}
               to="/disasters/$disasterId"
               params={{ disasterId: disaster.id }}
+              onClick={() => {
+                void setActiveDisaster(disaster.id);
+              }}
             >
               <strong className="mono">{disaster.id}</strong>
               <div>{disaster.disasterType ?? "unknown type"}</div>

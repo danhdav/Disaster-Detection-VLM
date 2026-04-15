@@ -3,11 +3,17 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import type { Feature } from "geojson";
 
 import { useMapContext } from "../../../../../context/MapContext";
-import { API_BASE } from "../../../../../lib/api";
 
 export const Route = createFileRoute("/(map)/disasters/$disasterId/features/$featureId")({
   component: FeatureDetailPanel,
 });
+
+function resolveImageSrc(src: string): string {
+  if (src.startsWith("http://") || src.startsWith("https://")) {
+    return src;
+  }
+  return src.startsWith("/") ? src : `/${src}`;
+}
 
 function FeatureDetailPanel() {
   const { disasterId, featureId } = Route.useParams();
@@ -34,12 +40,8 @@ function FeatureDetailPanel() {
     (item: Feature) => String(item.properties?.uid ?? "") === featureId,
   );
 
-  const preImageSrc =
-    sceneLabels?.pre?.imageUrl ??
-    (sceneLabels?.pre?.imgName ? `/disasters/images/${sceneLabels.pre.imgName}` : null);
-  const postImageSrc =
-    sceneLabels?.post?.imageUrl ??
-    (sceneLabels?.post?.imgName ? `/disasters/images/${sceneLabels.post.imgName}` : null);
+  const preImageSrc = sceneLabels?.pre?.imageUrl ?? null;
+  const postImageSrc = sceneLabels?.post?.imageUrl ?? null;
 
   return (
     <>
@@ -65,7 +67,7 @@ function FeatureDetailPanel() {
             <img
               alt="Pre-disaster tile preview"
               className="tile-preview-img"
-              src={`${API_BASE}${preImageSrc}`}
+              src={resolveImageSrc(preImageSrc)}
             />
           ) : (
             <p>No pre image available.</p>
@@ -77,7 +79,7 @@ function FeatureDetailPanel() {
             <img
               alt="Post-disaster tile preview"
               className="tile-preview-img"
-              src={`${API_BASE}${postImageSrc}`}
+              src={resolveImageSrc(postImageSrc)}
             />
           ) : (
             <p>No post image available.</p>

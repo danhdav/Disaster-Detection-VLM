@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pymongo.errors import PyMongoError
 
 from storage import (
@@ -26,6 +29,21 @@ To view the documentation UI, visit /docs
 '''
 
 app = FastAPI(title="Database & S3 API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 fire_labels_collection = labels_collection
 
@@ -52,6 +70,7 @@ async def get_fire_labels():
     assert fire_labels_collection is not None
     try:
         labels = list(fire_labels_collection.find())
+        print(f"Total labels retrieved: {len(labels)}")
         for label in labels:
             if "_id" in label:
                 label["_id"] = str(label["_id"])
@@ -118,6 +137,41 @@ async def get_image_urls(disaster_name: str):
         raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/image/{scene_id}/{phase}")
+async def get_scene_image(scene_id: str, phase: str):
+    _require_s3()
+    phase_key = phase.strip().lower()
+    if phase_key not in {"pre", "post"}:
+        raise HTTPException(status_code=400, detail="Phase must be 'pre' or 'post'")
+
+    try:
+        urls = presigned_scene_image_urls(scene_id)
+        url_key = "pre_image_url" if phase_key == "pre" else "post_image_url"
+        target_url = urls.get(url_key)
+        if not target_url:
+            raise HTTPException(status_code=404, detail="Image URL not found")
+
+        upstream = requests.get(target_url, stream=True, timeout=30)
+        upstream.raise_for_status()
+
+        content_type = upstream.headers.get("Content-Type", "image/png")
+        return StreamingResponse(
+            upstream.iter_content(chunk_size=1024 * 64),
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"S3 proxy request failed: {e}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
