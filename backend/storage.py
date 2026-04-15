@@ -49,11 +49,7 @@ def fetch_scene_label_documents(
     disaster_id: str,
     scene_id: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Load pre/post xView2-style label documents from MongoDB.
-
-    Expects ``metadata.disaster`` and ``metadata.img_name`` like
-    ``{scene_id}_pre_disaster.png`` / ``{scene_id}_post_disaster.png``.
-    """
+    # Load pre/post documents from MongoDB
     if labels_collection is None:
         raise RuntimeError("MongoDB is not configured (MONGO_URI)")
 

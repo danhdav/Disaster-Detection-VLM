@@ -1,4 +1,7 @@
-"""FastAPI VLM / OpenRouter analysis endpoints."""
+'''
+This file runs VLM analysis on a disaster using OpenRouter.
+In the frontend, the user presses a button to trigger the VLM analysis for a specific disaster location. It will send a request to the /analyze endpoint. The response will include the VLM's analysis text, the model used, and metadata about the scene and feature analyzed.
+'''
 
 from __future__ import annotations
 
@@ -20,20 +23,22 @@ from storage import (
 
 app = FastAPI(title="VLM API", version="1.0.0")
 
-_PROMPT_PREFIX = (
-    "You are a disaster damage analyst. Compare pre-disaster and post-disaster satellite images "
-    "for one structure and provide:\n"
-    "1) damage classification\n"
-    "2) confidence (0-100)\n"
-    "3) brief justification\n"
-    "4) immediate response recommendation\n\n"
-)
+# Prompt background information for the VLM
+_PROMPT_PREFIX = {
+    "You are a weather analyst specializing in disaster damage assessment. Based on the provided before and after satellite imagery, provide:\n"
+    "1) A damage classification.\n"
+    "2) A confidence score (0-100).\n"
+    "3) A very brief justification (less than a paragraph) based on key visual indicators.\n"
+    "4) An immediate response recommendation based on the observed damage.\n\n"
+    "Output your analysis in the following JSON format:\n"
+}
 
-
-def openrouter_analyze(
+# Call OpenRouter with the prompt and return the response
+def openrouter_analysis(
+    # Required parameters for the VLM
     feature: dict[str, Any] | None,
-    pre_data_url: str | None,
-    post_data_url: str | None,
+    pre_data_url: str | None, # pre-image URL
+    post_data_url: str | None, # post-image URL
     disaster_id: str,
     scene_id: str,
 ) -> str:
@@ -41,13 +46,14 @@ def openrouter_analyze(
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    model = os.getenv("OPENROUTER_VLM_MODEL")
     if not model:
-        raise RuntimeError("OPENROUTER_MODEL is not set")
+        raise RuntimeError("OPENROUTER_VLM_MODEL is not set")
 
     feature_properties = (feature or {}).get("properties", {})
     feature_wkt = (feature or {}).get("wkt")
 
+    # Add the requested output format to the prompt
     prompt = (
         _PROMPT_PREFIX
         + f"Disaster: {disaster_id}\n"
@@ -57,6 +63,9 @@ def openrouter_analyze(
     )
 
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+
+    # Append the image URLs to the prompt
+    # Ensure this is correct
     if pre_data_url:
         content.append({"type": "text", "text": "Pre-disaster image:"})
         content.append({"type": "image_url", "image_url": {"url": pre_data_url}})
@@ -79,11 +88,13 @@ def openrouter_analyze(
         "https://openrouter.ai/api/v1/chat/completions",
         headers=headers,
         json=payload,
-        timeout=120,
+        timeout=60,
     )
     response.raise_for_status()
     body = response.json()
 
+    # Openrouter has a big response schema, so this parses the content only
+    # If the content is an entire string, return, otherwise extract the text parts and concatenate them
     content_value = body["choices"][0]["message"]["content"]
     if isinstance(content_value, str):
         return content_value
@@ -93,7 +104,7 @@ def openrouter_analyze(
             if isinstance(item, dict) and item.get("type") == "text":
                 parts.append(item.get("text", ""))
         return "\n".join(parts).strip()
-    return str(content_value)
+    return str(body)
 
 
 class AnalyzeRequest(BaseModel):
@@ -106,8 +117,10 @@ class AnalyzeRequest(BaseModel):
 
 
 @app.post("/analyze", response_model=None)
-def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONResponse:
-    model_name = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+def analyze_with_openrouter(
+    body: AnalyzeRequest
+    ) -> dict[str, Any] | JSONResponse:
+    model_name = os.getenv("OPENROUTER_VLM_MODEL")
 
     try:
         pre_doc, post_doc = fetch_scene_label_documents(body.disasterId, body.sceneId)
@@ -153,13 +166,13 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
                 status_code=404,
                 content={"status": "error", "error": f"S3 imagery: {exc}"},
             )
-
+        
     feature = body.feature
     if feature is None and body.featureId:
         feature = find_feature_by_uid(pre_phase, post_phase, body.featureId)
 
     try:
-        analysis_text = openrouter_analyze(
+        analysis_text = openrouter_analysis(
             feature=feature,
             pre_data_url=pre_data_url,
             post_data_url=post_data_url,

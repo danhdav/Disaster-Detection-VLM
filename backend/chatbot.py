@@ -43,7 +43,7 @@ def _openrouter_chat_completion(messages: list[dict[str, Any]]) -> str:
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    model = os.getenv("OPENROUTER_CHAT_MODEL", os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"))
+    model = os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-4o-mini")
     payload = {
         "model": model,
         "messages": messages,
