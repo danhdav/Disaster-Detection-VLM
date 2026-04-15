@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -132,6 +133,47 @@ class AnalyzeRequest(BaseModel):
     feature: dict[str, Any] | None = None
 
 
+def persist_analysis_via_fire(
+    *,
+    disaster_id: str,
+    scene_id: str,
+    feature_id: str | None,
+    analysis_text: str,
+    model_name: str | None,
+    has_pre_image: bool,
+    has_post_image: bool,
+) -> str:
+    internal_api_base = os.getenv("INTERNAL_API_BASE", "http://127.0.0.1:5000")
+    endpoint = f"{internal_api_base.rstrip('/')}/fire"
+
+    document = {
+        "documentType": "analysis_result",
+        "createdAt": datetime.now(UTC).isoformat(),
+        "disasterId": disaster_id,
+        "sceneId": scene_id,
+        "featureId": feature_id,
+        "analysisText": analysis_text,
+        "model": model_name,
+        "hasPreImage": has_pre_image,
+        "hasPostImage": has_post_image,
+        "source": "analyze_endpoint",
+    }
+
+    response = requests.post(
+        endpoint,
+        params={"collection": "analysis"},
+        json=document,
+        timeout=20,
+    )
+    response.raise_for_status()
+
+    body = response.json()
+    inserted_id = body.get("_id")
+    if not inserted_id:
+        raise RuntimeError("POST /fire did not return an inserted _id for analysis document")
+    return str(inserted_id)
+
+
 @app.post("/analyze", response_model=None)
 def analyze_with_openrouter(
     body: AnalyzeRequest
@@ -206,6 +248,27 @@ def analyze_with_openrouter(
             content={"status": "error", "error": str(exc)},
         )
 
+    try:
+        analysis_document_id = persist_analysis_via_fire(
+            disaster_id=body.disasterId,
+            scene_id=body.sceneId,
+            feature_id=body.featureId,
+            analysis_text=analysis_text,
+            model_name=model_name,
+            has_pre_image=bool(pre_data_url),
+            has_post_image=bool(post_data_url),
+        )
+    except requests.RequestException as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"status": "error", "error": f"Persisting analysis via /fire failed: {exc}"},
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": f"Persisting analysis via /fire failed: {exc}"},
+        )
+
     return {
         "status": "ok",
         "result": {
@@ -217,5 +280,6 @@ def analyze_with_openrouter(
             "hasPreImage": bool(pre_data_url),
             "hasPostImage": bool(post_data_url),
             "dataSource": "mongodb+s3",
+            "analysisDocumentId": analysis_document_id,
         },
     }

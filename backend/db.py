@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from storage import (
@@ -17,6 +19,7 @@ from storage import (
     bucket_name,
     labels_collection,
     mongo_client,
+    mongo_db_name,
     presigned_scene_image_urls,
     s3_client,
     test_mongodb_connection,
@@ -46,6 +49,18 @@ app.add_middleware(
 )
 
 fire_labels_collection = labels_collection
+analysis_collection_name = os.getenv("MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results")
+analysis_collection: Collection | None = (
+    mongo_client[mongo_db_name][analysis_collection_name] if mongo_client is not None else None
+)
+
+
+def _get_target_collection(collection: str) -> Collection | None:
+    if collection == "labels":
+        return fire_labels_collection
+    if collection == "analysis":
+        return analysis_collection
+    return None
 
 
 def _require_mongo():
@@ -97,14 +112,23 @@ async def search_fire_label(img_name: str):
 
 
 @app.post("/fire")
-async def add_fire_label(data: dict[str, Any]):
+async def add_fire_label(
+    data: dict[str, Any],
+    collection: str = Query(default="labels", pattern="^(labels|analysis)$"),
+):
     _require_mongo()
-    assert fire_labels_collection is not None
+    target_collection = _get_target_collection(collection)
+    if target_collection is None:
+        raise HTTPException(status_code=500, detail=f"Collection '{collection}' is not configured")
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
     try:
-        result = fire_labels_collection.insert_one(data)
-        return {"_id": str(result.inserted_id), "message": "Label added successfully"}
+        result = target_collection.insert_one(data)
+        return {
+            "_id": str(result.inserted_id),
+            "message": f"Document added successfully to '{collection}'",
+            "collection": collection,
+        }
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
