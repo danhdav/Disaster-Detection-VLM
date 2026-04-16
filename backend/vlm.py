@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,30 +26,15 @@ from storage import (
 
 app = FastAPI(title="VLM API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5000",
-        "http://127.0.0.1:5000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Prompt background information for the VLM
-_PROMPT_PREFIX = {
+_PROMPT_PREFIX = (
     "You are a weather analyst specializing in disaster damage assessment. Based on the provided before and after satellite imagery, provide:\n"
     "1) A damage classification.\n"
     "2) A confidence score (0-100).\n"
     "3) A very brief justification (less than a paragraph) based on key visual indicators.\n"
     "4) An immediate response recommendation based on the observed damage.\n\n"
-    "Output your analysis in the following JSON format:\n"
-}
+    "Output your analysis after the following within the same JSON format:\n"
+)
 
 # Call OpenRouter with the prompt and return the response
 def openrouter_analysis(
@@ -95,6 +81,17 @@ def openrouter_analysis(
         "messages": [{"role": "user", "content": content}],
         "temperature": 0.2,
     }
+
+    # print the raw content on the backend for debugging
+    print("OpenRouter VLM analysis request content:")
+    for item in content:
+        if item["type"] == "text":
+            print(f"TEXT: {item['text']}")
+        elif item["type"] == "image_url":
+            print(f"IMAGE_URL: {item['image_url']['url']}")
+        else:
+            print(f"OTHER CONTENT: {item}")
+
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -146,13 +143,30 @@ def persist_analysis_via_fire(
     internal_api_base = os.getenv("INTERNAL_API_BASE", "http://127.0.0.1:5000")
     endpoint = f"{internal_api_base.rstrip('/')}/fire"
 
+    # Lines 146-161 below will normalize the jsonified analysisText for label storage
+    normalized_analysis: Any = analysis_text.strip()
+
+    markdown_match = re.search(r"```(?:json)?\s*(.*?)\s*```", analysis_text, flags=re.DOTALL | re.IGNORECASE)
+    parse_candidates = [analysis_text.strip()]
+    if markdown_match:
+        parse_candidates.insert(0, markdown_match.group(1).strip())
+
+    for candidate in parse_candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, (dict, list)):
+                normalized_analysis = parsed
+                break
+        except json.JSONDecodeError:
+            continue
+
     document = {
         "documentType": "analysis_result",
         "createdAt": datetime.now(UTC).isoformat(),
         "disasterId": disaster_id,
         "sceneId": scene_id,
         "featureId": feature_id,
-        "analysisText": analysis_text,
+        "analysisText": normalized_analysis,
         "model": model_name,
         "hasPreImage": has_pre_image,
         "hasPostImage": has_post_image,

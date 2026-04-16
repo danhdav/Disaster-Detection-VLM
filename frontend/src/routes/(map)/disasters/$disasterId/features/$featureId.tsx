@@ -15,6 +15,76 @@ function resolveImageSrc(src: string): string {
   return src.startsWith("/") ? src : `/${src}`;
 }
 
+// Fix raw blob output
+function flattenAnalysisValue(value: unknown, path = ""): string[] {
+  if (value === null || value === undefined) {
+    return [path ? `${path}: null` : "null"];
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return [path ? `${path}: ${String(value)}` : String(value)];
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return [path ? `${path}: []` : "[]"];
+    }
+
+    const lines: string[] = [];
+    if (path) {
+      lines.push(`${path}:`);
+    }
+
+    value.forEach((item, index) => {
+      lines.push(...flattenAnalysisValue(item, path ? `${path}[${index}]` : `[${index}]`));
+    });
+
+    return lines;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      return [path ? `${path}: {}` : "{}"];
+    }
+
+    const lines: string[] = [];
+    if (path) {
+      lines.push(`${path}:`);
+    }
+
+    for (const [key, nestedValue] of entries) {
+      lines.push(...flattenAnalysisValue(nestedValue, path ? `${path}.${key}` : key));
+    }
+
+    return lines;
+  }
+
+  return [path ? `${path}: ${String(value)}` : String(value)];
+}
+
+function formatAnalysisResult(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidates = fencedMatch ? [fencedMatch[1].trim(), trimmed] : [trimmed];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      return flattenAnalysisValue(parsed);
+    } catch {
+      continue;
+    }
+  }
+
+  return trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function FeatureDetailPanel() {
   const { disasterId, featureId } = Route.useParams();
   const {
@@ -42,6 +112,7 @@ function FeatureDetailPanel() {
 
   const preImageSrc = sceneLabels?.pre?.imageUrl ?? null;
   const postImageSrc = sceneLabels?.post?.imageUrl ?? null;
+  const analysisLines = analysisResult ? formatAnalysisResult(analysisResult) : [];
 
   return (
     <>
@@ -98,8 +169,12 @@ function FeatureDetailPanel() {
 
       {analysisError ? (
         <div className="result-block">Error: {analysisError}</div>
-      ) : analysisResult ? (
-        <div className="result-block">{analysisResult}</div>
+      ) : analysisLines.length > 0 ? (
+        <div className="result-block">
+          {analysisLines.map((line, index) => (
+            <div key={`${index}-${line}`}>{line}</div>
+          ))}
+        </div>
       ) : (
         <p>Run analysis to request a structure-level assessment from the VLM.</p>
       )}

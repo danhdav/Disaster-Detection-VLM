@@ -33,21 +33,6 @@ To view the documentation UI, visit /docs
 
 app = FastAPI(title="Database & S3 API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5000",
-        "http://127.0.0.1:5000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 fire_labels_collection = labels_collection
 analysis_collection_name = os.getenv("MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results")
 analysis_collection: Collection | None = (
@@ -93,7 +78,7 @@ async def get_fire_labels():
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-# Query the full image name without the .png extension
+# Get a fire label by its metadata.img_name field (e.g. "scene00000123_pre_disaster.png")
 @app.get("/fire/search/{img_name}")
 async def search_fire_label(img_name: str):
     _require_mongo()
@@ -110,7 +95,7 @@ async def search_fire_label(img_name: str):
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
+# Add a fire label document
 @app.post("/fire")
 async def add_fire_label(
     data: dict[str, Any],
@@ -132,7 +117,7 @@ async def add_fire_label(
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
+# Deletes a fire label; should be used to remove generated vlm analyses' ground truth labels after server restart
 @app.delete("/fire/{label_id}")
 async def delete_fire_label(label_id: str):
     _require_mongo()
@@ -152,6 +137,7 @@ async def delete_fire_label(label_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# This endpoint is not currently used
 @app.get("/image/{disaster_name}")
 async def get_image_urls(disaster_name: str):
     _require_s3()
@@ -165,6 +151,10 @@ async def get_image_urls(disaster_name: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+'''
+Gets the disaster image for a given scene and phase (pre or post)
+scene_id format follows the following example: santa-rosa-wildfire_00000257
+'''
 @app.get("/image/{scene_id}/{phase}")
 async def get_scene_image(scene_id: str, phase: str):
     _require_s3()
