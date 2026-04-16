@@ -14,7 +14,6 @@ interface Message {
   content: string;
   timestamp: Date;
   stats?: Record<string, string | number> | null;
-  backendConnected?: boolean | null;
 }
 
 const SUGGESTIONS = [
@@ -33,8 +32,8 @@ const MOCK_RESPONSES: {
 }[] = [
   {
     match: /destroy|destroyed/i,
-    text: "In the current scene, **47 structures** were classified as destroyed, making 23% of all assessed buildings.",
-    stats: { destroyed: 47, total_assessed: 204 },
+    text: "In the current scene, **57 structures** were classified as destroyed, making 23% of all assessed buildings.",
+    stats: { destroyed: 57, total_assessed: 204 },
   },
   {
     match: /major.?damage|damage.*major/i,
@@ -48,7 +47,7 @@ const MOCK_RESPONSES: {
   },
   {
     match: /no.?damage|undamaged|percent/i,
-    text: "Around 54% of the assessed buildings **108 structures** show no damage.",
+    text: "Around 54% of the assessed buildings, **108 structures** show no damage.",
     stats: { no_damage: 108 },
   },
   {
@@ -73,7 +72,6 @@ async function sendChatMessage(
 ): Promise<{
   text: string;
   stats: Record<string, string | number> | null;
-  backendConnected: boolean;
 }> {
   try {
     const res = await fetch(`${API_BASE}/api/chat`, {
@@ -90,7 +88,6 @@ async function sendChatMessage(
     return {
       text: data.response ?? data.message,
       stats: data.stats ?? null,
-      backendConnected: true,
     };
   } catch {
     await new Promise((r) => setTimeout(r, 800));
@@ -101,7 +98,6 @@ async function sendChatMessage(
         match?.text ??
         "I can help you query disaster assessment data. Try asking about destroyed structures, damage levels, or scene statistics.",
       stats: match?.stats ?? null,
-      backendConnected: false,
     };
   }
 }
@@ -130,6 +126,25 @@ function TypingIndicator() {
   );
 }
 
+function RenderContent({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("**") && part.endsWith("**"))
+          return <strong key={i}>{part.slice(2, -2)}</strong>;
+        if (part.startsWith("`") && part.endsWith("`"))
+          return (
+            <code key={i} className="inline-code">
+              {part.slice(1, -1)}
+            </code>
+          );
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 function StatCards({ stats }: { stats: Record<string, string | number> }) {
   return (
     <div className="stat-cards">
@@ -155,24 +170,9 @@ function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
   return (
     <div className={`message-row ${isUser ? "user" : "assistant"}`}>
-      {!isUser && (
-        <div className="avatar assistant-avatar">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-          </svg>
-        </div>
-      )}
       <div className="bubble-wrapper">
         <div className={`bubble ${isUser ? "bubble-user" : "bubble-assistant"}`}>
-          {message.content}
+          {isUser ? message.content : <RenderContent text={message.content} />}
           {message.stats && <StatCards stats={message.stats} />}
         </div>
         <div className={`msg-meta ${isUser ? "user" : ""}`}>
@@ -184,21 +184,6 @@ function MessageBubble({ message }: { message: Message }) {
           </span>
         </div>
       </div>
-      {isUser && (
-        <div className="avatar user-avatar">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-        </div>
-      )}
     </div>
   );
 }
@@ -253,7 +238,6 @@ function ChatPage() {
         content: result.text,
         timestamp: new Date(),
         stats: result.stats,
-        backendConnected: result.backendConnected,
       },
     ]);
   };
@@ -296,6 +280,38 @@ function ChatPage() {
             <h1>Surge Assistant</h1>
           </div>
           <div className="status-dot" title="Online" />
+          <button
+            className="send-btn clear-btn"
+            onClick={() => {
+              setMessages([
+                {
+                  id: "0",
+                  role: "assistant",
+                  content:
+                    "Hi, I am your disaster assessment assistant. Select a question below or type your own question.",
+                  timestamp: new Date(),
+                },
+              ]);
+              setShowSuggestions(true);
+            }}
+            title="Clear chat"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="lucide lucide-rotate-ccw-icon lucide-rotate-ccw"
+            >
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+          </button>
         </header>
 
         {/* Messages */}
@@ -307,26 +323,13 @@ function ChatPage() {
           {showSuggestions && (
             <SuggestionChips
               onSelect={(text) => {
-                sendMessage(text); // pass text directly so it doesn't rely on state timing
+                void sendMessage(text);
               }}
             />
           )}
 
           {isTyping && (
             <div className="typing-row">
-              <div className="avatar assistant-avatar">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-                </svg>
-              </div>
               <div className="typing-bubble">
                 <TypingIndicator />
               </div>
@@ -379,14 +382,14 @@ const chatStyles = `
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-        --bg:        #0d0f14;
-        --surface:   #13161d;
-        --border:    #1f2430;
-        --accent:    #2563eb;
-        --accent2:   #60a5fa;
-        --text:      #e8eaf0;
-        --muted:     #5a6070;
-        --bot-bg:    #1a1e28;
+        --bg:        #0d1117;
+        --surface:   rgba(255, 255, 255, 0.05);
+        --border:    rgba(255, 255, 255, 0.1);
+        --accent:    #3b7ef8;
+        --accent2:   #7eb3ff;
+        --text:      #e8edf5;
+        --muted:     #7a8aaa;
+        --bot-bg:    rgba(255, 255, 255, 0.06);
         --radius:    14px;
         --font:      'Recursive', sans-serif;
         --mono:      'Recursive', monospace;
@@ -404,18 +407,30 @@ const chatStyles = `
     .chip {
         padding: 5px 12px;
         background: rgba(255, 255, 255, 0.04);
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255, 255, 255, 0.01);
         border-radius: 20px;
         color: var(--muted);
         font-size: 12px;
         font-family: var(--font);
         cursor: pointer;
         transition: all 0.15s;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
     }
     .chip:hover {
         background: rgba(37, 99, 235, 0.15);
         border-color: rgba(37, 99, 235, 0.4);
         color: var(--accent2);
+    }
+
+    /* ── Inline code ── */
+    .inline-code {
+        background: rgba(59, 126, 248, 0.15);
+        color: var(--accent2);
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-family: var(--mono);
     }
 
     /* ── Message meta row ── */
@@ -427,10 +442,6 @@ const chatStyles = `
     }
     .msg-meta.user { justify-content: flex-end; }
 
-    .badge      { font-size: 10px; }
-    .badge-mock { color: #4b5563; }
-    .badge-live { color: #22c55e; }
-
     /* ── Stat cards ── */
     .stat-cards {
         display: flex;
@@ -440,13 +451,15 @@ const chatStyles = `
     }
     .stat-card {
         background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.01);
         border-left: 3px solid;
         border-radius: 6px;
         padding: 6px 10px;
         display: flex;
         flex-direction: column;
         gap: 1px;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
     }
     .stat-num {
         font-size: 18px;
@@ -469,9 +482,11 @@ const chatStyles = `
         height: 100dvh;
         max-width: 820px;
         margin: 0 auto;
-        background: var(--surface);
-        border-left: 1px solid var(--border);
-        border-right: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     /* ── Header ── */
@@ -480,8 +495,10 @@ const chatStyles = `
         align-items: center;
         gap: 12px;
         padding: 18px 24px;
-        border-bottom: 1px solid var(--border);
-        background: var(--surface);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         position: sticky;
         top: 0;
         z-index: 10;
@@ -535,20 +552,6 @@ const chatStyles = `
         to   { opacity: 1; transform: translateY(0); }
     }
 
-    .avatar {
-        width: 34px; height: 34px; border-radius: 10px;
-        display: grid; place-items: center;
-        flex-shrink: 0;
-    }
-    .assistant-avatar {
-        background: var(--border);
-        color: var(--accent2);
-    }
-    .user-avatar {
-        background: var(--accent);
-        color: #fff;
-    }
-
     .bubble-wrapper { display: flex; flex-direction: column; gap: 4px; max-width: 72%; }
     .message-row.user .bubble-wrapper { align-items: flex-end; }
 
@@ -566,10 +569,12 @@ const chatStyles = `
         border-bottom-right-radius: 4px;
     }
     .bubble-assistant {
-        background: var(--bot-bg);
+        background: rgba(255, 255, 255, 0.06);
         color: var(--text);
         border: 1px solid var(--border);
         border-bottom-left-radius: 4px;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
     }
 
     .timestamp {
@@ -585,12 +590,14 @@ const chatStyles = `
         animation: fadeUp 0.2s ease both;
     }
     .typing-bubble {
-        background: var(--bot-bg);
-        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: var(--radius);
         border-bottom-left-radius: 4px;
         padding: 14px 16px;
         display: flex; align-items: center;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
     }
     .typing-indicator {
         display: flex; gap: 5px; align-items: center;
@@ -610,22 +617,24 @@ const chatStyles = `
     /* ── Input area ── */
     .input-area {
         padding: 16px 20px;
-        border-top: 1px solid var(--border);
-        background: var(--surface);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
     }
     .input-row {
         display: flex;
         align-items: flex-end;
         gap: 10px;
-        background: var(--bg);
-        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: var(--radius);
         padding: 10px 10px 10px 16px;
         transition: border-color 0.2s;
     }
     .input-row:focus-within {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px #e8622a18;
+        border-color: rgba(59, 126, 248, 0.6);
+        box-shadow: 0 0 0 3px rgba(59, 126, 248, 0.1);
     }
     textarea {
         flex: 1;
@@ -642,8 +651,8 @@ const chatStyles = `
     textarea::placeholder { color: var(--muted); }
 
     .send-btn {
-        width: 36px; height: 36px;
-        border-radius: 9px;
+        width: 30px; height: 30px;
+        border-radius: 8px;
         background: var(--accent);
         border: none;
         cursor: pointer;
@@ -654,5 +663,13 @@ const chatStyles = `
     }
     .send-btn:hover { background: var(--accent2); }
     .send-btn:active { transform: scale(0.93); }
-    .send-btn:disabled { background: var(--border); cursor: not-allowed; }        
+    .send-btn:disabled { background: var(--border); cursor: not-allowed; }
+    
+    .clear-btn {
+        background: var(--border);
+        cursor: pointer;
+    }
+    .clear-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
     `;
