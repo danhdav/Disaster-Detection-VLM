@@ -1,4 +1,7 @@
-"""FastAPI endpoints for MongoDB (labels) and S3 (imagery)."""
+'''
+This file contains API endpoints for the dataset (i.e interacting with MongoDB and AWS S3)
+To view the documentation UI, visit /docs
+'''
 
 from __future__ import annotations
 
@@ -9,7 +12,6 @@ import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
@@ -20,16 +22,12 @@ from backend.dataparser import (
     labels_collection,
     mongo_client,
     mongo_db_name,
-    presigned_scene_image_urls,
     s3_client,
+    presigned_scene_image_urls,
     test_mongodb_connection,
     test_s3_connection,
 )
 
-'''
-This file contains API endpoints for the dataset (i.e interacting with MongoDB and AWS S3)
-To view the documentation UI, visit /docs
-'''
 
 app = FastAPI(title="Database & S3 API", version="1.0.0")
 

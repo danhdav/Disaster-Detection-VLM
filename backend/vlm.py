@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from backend.dataparser import (
     fetch_scene_label_documents,
     find_feature_by_uid,
-    label_phase_from_document,
+    extract_label_data,
     presigned_scene_image_urls,
 )
 
@@ -216,8 +216,8 @@ def analyze_with_openrouter(
             ),
         )
 
-    pre_phase = label_phase_from_document(pre_doc)
-    post_phase = label_phase_from_document(post_doc)
+    pre_phase = extract_label_data(pre_doc)
+    post_phase = extract_label_data(post_doc)
 
     try:
         pre_data_url, post_data_url = _resolve_scene_image_urls(

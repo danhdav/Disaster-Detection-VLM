@@ -68,8 +68,8 @@ def fetch_scene_label_documents(
     return docs["pre"], docs["post"]
 
 
-def label_phase_from_document(doc: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Shape one Mongo label document like a Flask route phase (metadata, features, imgName)."""
+# Extract the relevant label data from a MongoDB document
+def extract_label_data(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     if doc is None:
         return None
     metadata = doc.get("metadata") or {}
