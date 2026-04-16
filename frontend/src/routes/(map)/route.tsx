@@ -2,6 +2,7 @@ import * as React from "react";
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
+import { ChatSidebar } from "../../components/ChatSidebar.tsx";
 import { SystemStatus } from "../../components/SystemStatus";
 import { MapProvider, useMapContext } from "../../context/MapContext";
 import "./-map.css";
@@ -89,6 +90,10 @@ function MapLayout() {
           <SystemStatus />
           <Outlet />
         </div>
+      </aside>
+
+      <aside className="chat-sidebar-panel" aria-label="Disaster assessment chat sidebar">
+        <ChatSidebar />
       </aside>
     </div>
   );

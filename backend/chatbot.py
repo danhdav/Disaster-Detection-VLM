@@ -83,10 +83,18 @@ def index() -> dict[str, str]:
 def create_session() -> dict[str, str]:
     session_id = str(uuid4())
     chat_sessions[session_id] = {}
+    print("Session created: ", session_id)  # Debug log
     return {"session_id": session_id}
 
+# Delete all chat sessions (after site refresh or exit)
+@app.delete("/chat/sessions")
+def delete_all_sessions() -> dict[str, Any]:
+    deleted_count = len(chat_sessions)
+    chat_sessions.clear()
+    return {"message": "All chat sessions deleted", "deleted_count": deleted_count}
 
-# Delete a session and its history (run for server restarts or cleanup)
+
+# Delete a session and its history (run for specific session deletion in the sidebar)
 @app.delete("/chat/sessions/{session_id}")
 def delete_session(session_id: str) -> dict[str, str]:
     if session_id not in chat_sessions:

@@ -10,6 +10,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      "/chat": "http://localhost:5000",
       "/fire": "http://localhost:5000",
       "/image": "http://localhost:5000",
       "/analyze": "http://localhost:5000",
