@@ -4,7 +4,7 @@ declare module "@terraformer/wkt" {
 /// <reference types="@rsbuild/core/types" />
 
 interface ImportMetaEnv {
-  readonly VITE_API_BASE_URL?: string;
+  readonly PUBLIC_API_BASE_URL?: string;
 }
 
 interface ImportMeta {
