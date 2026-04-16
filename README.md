@@ -3,7 +3,7 @@
 ## Setup
 
 - Frontend: Follow the instructions in the [frontend README](./frontend/README.md) to set up the frontend application.
-- Backend: Follow the instructions in the [frontend README](./backend/README.md) to set up the frontend application.
+- Backend: Follow the instructions in the [backend README](./backend/README.md) to set up the backend environment.
 
 ## Misc. notes + diagrams
 

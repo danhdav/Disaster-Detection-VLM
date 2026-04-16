@@ -21,12 +21,98 @@ interface ChatSessionEntry {
 const INITIAL_ASSISTANT_TEXT =
   "Hi, I am your disaster assessment assistant. Select a question below or type your own question.";
 
+function createInitialAssistantMessage(): Message {
+  return {
+    id: Date.now().toString(),
+    role: "assistant",
+    content: INITIAL_ASSISTANT_TEXT,
+    timestamp: new Date(),
+  };
+}
+
 const SUGGESTIONS = [
   "How many structures were destroyed?",
   "How many buildings show major damage?",
   "How many buildings were undamaged?",
   "What steps are recommended next?",
 ];
+
+const CHAT_HISTORY_USER = "default";
+
+type PersistedTurn = {
+  prompt: string;
+  response: string;
+};
+
+type SessionHistoryPayload = {
+  session_id: string;
+  history: Record<string, PersistedTurn[]>;
+};
+
+function normalizeHistoryToMessages(history: Record<string, PersistedTurn[]>): Message[] {
+  const turns = Object.values(history).flat();
+  if (turns.length === 0) {
+    return [createInitialAssistantMessage()];
+  }
+
+  const base = Date.now();
+  const restored: Message[] = [];
+  turns.forEach((turn, index) => {
+    restored.push(
+      {
+        id: `${base}-${index * 2}`,
+        role: "user",
+        content: turn.prompt,
+        timestamp: new Date(base + index * 2),
+      },
+      {
+        id: `${base}-${index * 2 + 1}`,
+        role: "assistant",
+        content: turn.response,
+        timestamp: new Date(base + index * 2 + 1),
+      },
+    );
+  });
+
+  return restored;
+}
+
+async function fetchAllSessionHistory(): Promise<Record<string, Record<string, PersistedTurn[]>>> {
+  const response = await fetch(`${API_BASE}/chat/history`);
+  if (!response.ok) {
+    throw new Error(`Failed to load chat history (HTTP ${response.status})`);
+  }
+  return (await response.json()) as Record<string, Record<string, PersistedTurn[]>>;
+}
+
+async function fetchSessionHistory(sessionId: string): Promise<Message[]> {
+  const response = await fetch(`${API_BASE}/chat/history/${sessionId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to load session history (HTTP ${response.status})`);
+  }
+  const payload = (await response.json()) as SessionHistoryPayload;
+  return normalizeHistoryToMessages(payload.history);
+}
+
+async function persistSessionTurn(
+  sessionId: string,
+  prompt: string,
+  responseText: string,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/chat/history/${sessionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user: CHAT_HISTORY_USER,
+      prompt,
+      response: responseText,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to persist session history (HTTP ${response.status})`);
+  }
+}
 
 async function createChatSession(): Promise<string> {
   const response = await fetch(`${API_BASE}/chat/sessions`, {
@@ -44,17 +130,6 @@ async function createChatSession(): Promise<string> {
   }
 
   return sessionId;
-}
-
-async function deleteAllChatSessions(): Promise<void> {
-  try {
-    await fetch(`${API_BASE}/chat/sessions`, {
-      method: "DELETE",
-      keepalive: true,
-    });
-  } catch {
-    // Ignore cleanup failures during browser unload.
-  }
 }
 
 const DAMAGE_COLORS: Record<string, string> = {
@@ -208,14 +283,8 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 export function ChatSidebar() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "0",
-      role: "assistant",
-      content: INITIAL_ASSISTANT_TEXT,
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([createInitialAssistantMessage()]);
+  const [sessionMessages, setSessionMessages] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
@@ -234,17 +303,18 @@ export function ChatSidebar() {
   };
 
   const resetConversation = () => {
-    setMessages([
-      {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: INITIAL_ASSISTANT_TEXT,
-        timestamp: new Date(),
-      },
-    ]);
+    setMessages([createInitialAssistantMessage()]);
     setInput("");
     setShowSuggestions(true);
     setIsTyping(false);
+  };
+
+  const persistCurrentSessionMessages = () => {
+    if (!sessionId) return;
+    setSessionMessages((previous) => ({
+      ...previous,
+      [sessionId]: messages,
+    }));
   };
 
   const getOrCreateSession = async (): Promise<string> => {
@@ -269,32 +339,74 @@ export function ChatSidebar() {
   };
 
   const handleCreateSession = async () => {
+    persistCurrentSessionMessages();
     setSessionId(null);
     resetConversation();
   };
 
   const handleSelectSession = (selectedSessionId: string) => {
-    setSessionId(selectedSessionId);
-    resetConversation();
+    persistCurrentSessionMessages();
+    const switchToSession = async () => {
+      const cachedMessages = sessionMessages[selectedSessionId];
+      const selectedMessages = cachedMessages ?? (await fetchSessionHistory(selectedSessionId));
+
+      setSessionMessages((previous) => ({
+        ...previous,
+        [selectedSessionId]: selectedMessages,
+      }));
+      setSessionId(selectedSessionId);
+      setMessages(selectedMessages);
+      setInput("");
+      setShowSuggestions(selectedMessages.length <= 1);
+      setIsTyping(false);
+    };
+
+    void switchToSession().catch(() => {
+      const selectedMessages = sessionMessages[selectedSessionId] ?? [
+        createInitialAssistantMessage(),
+      ];
+      setSessionId(selectedSessionId);
+      setMessages(selectedMessages);
+      setInput("");
+      setShowSuggestions(selectedMessages.length <= 1);
+      setIsTyping(false);
+    });
   };
 
   useEffect(() => {
-    const handlePageExit = () => {
-      void deleteAllChatSessions();
+    const initializeFromBackend = async () => {
+      try {
+        const allHistory = await fetchAllSessionHistory();
+        const loadedSessionMessages: Record<string, Message[]> = {};
+        const loadedSessions: ChatSessionEntry[] = Object.keys(allHistory).map((id, index) => {
+          loadedSessionMessages[id] = normalizeHistoryToMessages(allHistory[id]);
+          return {
+            id,
+            createdAt: new Date(Date.now() - index * 1000),
+          };
+        });
+
+        setSessionMessages(loadedSessionMessages);
+        setSessions(loadedSessions);
+      } catch {
+        // Keep local empty state when backend history is unavailable.
+      }
     };
 
-    window.addEventListener("pagehide", handlePageExit);
-    window.addEventListener("beforeunload", handlePageExit);
-
-    return () => {
-      window.removeEventListener("pagehide", handlePageExit);
-      window.removeEventListener("beforeunload", handlePageExit);
-    };
+    void initializeFromBackend();
   }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    setSessionMessages((previous) => ({
+      ...previous,
+      [sessionId]: messages,
+    }));
+  }, [messages, sessionId]);
 
   useEffect(() => {
     const textarea = inputRef.current;
@@ -342,19 +454,23 @@ export function ChatSidebar() {
     }
 
     const result = await sendChatMessage(text, history, currentSessionId);
+    const assistantMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: "assistant",
+      content: result.text,
+      timestamp: new Date(),
+      stats: result.stats,
+      backendConnected: result.backendConnected,
+    };
 
     setIsTyping(false);
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: result.text,
-        timestamp: new Date(),
-        stats: result.stats,
-        backendConnected: result.backendConnected,
-      },
-    ]);
+    setMessages((previous) => [...previous, assistantMessage]);
+
+    if (result.backendConnected) {
+      void persistSessionTurn(currentSessionId, text, assistantMessage.content).catch(() => {
+        // Ignore persistence failures; the response is already shown to the user.
+      });
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {

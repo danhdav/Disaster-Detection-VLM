@@ -25,11 +25,7 @@ NOTE: these keys are not hardcoded as environmental variables nor in the program
 
 # Environmental Variables
 
-An example.env is given and should be the outline for what values to include in your local development setup.
-
-As far as deployment, a "prod" environment has been created on GitHub (see Settings -> Environments). This environment will be used to push workflows that are production-ready.
-Github Secrets will be used to replace the .env file convention for local development. Each environmental variable will instead be assigned via the repository secrets section (see Settings -> GitHub Secrets).
-Note that any environment-specific secrets will take precedence over repository secrets. For now, I have assigned the environmental variables as repository secrets.
+An example.env is given and should be the outline for what values to include in your local development setup. Railway will handle backend environmental variables during deployment.
 
 # Database
 
