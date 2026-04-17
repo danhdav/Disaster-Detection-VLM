@@ -1,33 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { API_BASE } from "../lib/api";
-
-type Role = "user" | "assistant";
-
-interface Message {
-  id: string;
-  role: Role;
-  content: string;
-  timestamp: Date;
-  stats?: Record<string, string | number> | null;
-  backendConnected?: boolean | null;
-}
+import {
+  chatKeys,
+  createInitialAssistantMessage,
+  normalizeHistoryToMessages,
+  type AllSessionHistoryMap,
+  type ChatMessage as Message,
+} from "../lib/chatApi";
+import {
+  useChatSessionQuery,
+  useChatSessionsQuery,
+  useCreateChatSessionMutation,
+  usePersistSessionTurnMutation,
+  useSendChatMessageMutation,
+} from "../hooks/useChatQueries";
 
 interface ChatSessionEntry {
   id: string;
   createdAt: Date;
-}
-
-const INITIAL_ASSISTANT_TEXT =
-  "Hi, I am your disaster assessment assistant. Select a question below or type your own question.";
-
-function createInitialAssistantMessage(): Message {
-  return {
-    id: Date.now().toString(),
-    role: "assistant",
-    content: INITIAL_ASSISTANT_TEXT,
-    timestamp: new Date(),
-  };
 }
 
 const SUGGESTIONS = [
@@ -37,101 +28,6 @@ const SUGGESTIONS = [
   "What steps are recommended next?",
 ];
 
-const CHAT_HISTORY_USER = "default";
-
-type PersistedTurn = {
-  prompt: string;
-  response: string;
-};
-
-type SessionHistoryPayload = {
-  session_id: string;
-  history: Record<string, PersistedTurn[]>;
-};
-
-function normalizeHistoryToMessages(history: Record<string, PersistedTurn[]>): Message[] {
-  const turns = Object.values(history).flat();
-  if (turns.length === 0) {
-    return [createInitialAssistantMessage()];
-  }
-
-  const base = Date.now();
-  const restored: Message[] = [];
-  turns.forEach((turn, index) => {
-    restored.push(
-      {
-        id: `${base}-${index * 2}`,
-        role: "user",
-        content: turn.prompt,
-        timestamp: new Date(base + index * 2),
-      },
-      {
-        id: `${base}-${index * 2 + 1}`,
-        role: "assistant",
-        content: turn.response,
-        timestamp: new Date(base + index * 2 + 1),
-      },
-    );
-  });
-
-  return restored;
-}
-
-async function fetchAllSessionHistory(): Promise<Record<string, Record<string, PersistedTurn[]>>> {
-  const response = await fetch(`${API_BASE}/chat/history`);
-  if (!response.ok) {
-    throw new Error(`Failed to load chat history (HTTP ${response.status})`);
-  }
-  return (await response.json()) as Record<string, Record<string, PersistedTurn[]>>;
-}
-
-async function fetchSessionHistory(sessionId: string): Promise<Message[]> {
-  const response = await fetch(`${API_BASE}/chat/history/${sessionId}`);
-  if (!response.ok) {
-    throw new Error(`Failed to load session history (HTTP ${response.status})`);
-  }
-  const payload = (await response.json()) as SessionHistoryPayload;
-  return normalizeHistoryToMessages(payload.history);
-}
-
-async function persistSessionTurn(
-  sessionId: string,
-  prompt: string,
-  responseText: string,
-): Promise<void> {
-  const response = await fetch(`${API_BASE}/chat/history/${sessionId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      user: CHAT_HISTORY_USER,
-      prompt,
-      response: responseText,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to persist session history (HTTP ${response.status})`);
-  }
-}
-
-async function createChatSession(): Promise<string> {
-  const response = await fetch(`${API_BASE}/chat/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!response.ok) {
-    throw new Error(`Session creation failed (HTTP ${response.status})`);
-  }
-
-  const data = (await response.json()) as { session_id?: string };
-  const sessionId = data.session_id?.trim();
-  if (!sessionId) {
-    throw new Error("Session creation returned an invalid session id");
-  }
-
-  return sessionId;
-}
-
 const DAMAGE_COLORS: Record<string, string> = {
   destroyed: "#ef4444",
   major_damage: "#f97316",
@@ -140,46 +36,6 @@ const DAMAGE_COLORS: Record<string, string> = {
   un_classified: "#6b7280",
   total_assessed: "#3b82f6",
 };
-
-async function sendChatMessage(
-  message: string,
-  history: { role: Role; content: string }[],
-  sessionId: string,
-): Promise<{
-  text: string;
-  stats: Record<string, string | number> | null;
-  backendConnected: boolean;
-}> {
-  try {
-    const response = await fetch(`${API_BASE}/api/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Chat-Session-Id": sessionId,
-      },
-      body: JSON.stringify({
-        message,
-        conversation_history: history,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const data = await response.json();
-    return {
-      text: data.response ?? data.message,
-      stats: data.stats ?? null,
-      backendConnected: true,
-    };
-  } catch {
-    return {
-      text: "I could not reach the chat API right now. Please try again in a moment.",
-      stats: null,
-      backendConnected: false,
-    };
-  }
-}
 
 function SuggestionChips({ onSelect }: { onSelect: (text: string) => void }) {
   return (
@@ -283,130 +139,64 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 export function ChatSidebar() {
-  const [messages, setMessages] = useState<Message[]>([createInitialAssistantMessage()]);
-  const [sessionMessages, setSessionMessages] = useState<Record<string, Message[]>>({});
+  const queryClient = useQueryClient();
+  const sessionsQuery = useChatSessionsQuery();
+  const createSessionMutation = useCreateChatSessionMutation();
+  const sendMessageMutation = useSendChatMessageMutation();
+  const persistTurnMutation = usePersistSessionTurnMutation();
+
+  const [draftMessages, setDraftMessages] = useState<Message[]>(() => [
+    createInitialAssistantMessage(),
+  ]);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
-  const [sessions, setSessions] = useState<ChatSessionEntry[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const creatingSessionRef = useRef<Promise<string> | null>(null);
+  const sessionQuery = useChatSessionQuery(sessionId);
+  const isTyping = sendMessageMutation.isPending;
 
-  const addSessionToList = (id: string) => {
-    setSessions((previous) => {
-      if (previous.some((session) => session.id === id)) return previous;
-      return [{ id, createdAt: new Date() }, ...previous];
-    });
-  };
-
-  const resetConversation = () => {
-    setMessages([createInitialAssistantMessage()]);
-    setInput("");
-    setShowSuggestions(true);
-    setIsTyping(false);
-  };
-
-  const persistCurrentSessionMessages = () => {
-    if (!sessionId) return;
-    setSessionMessages((previous) => ({
-      ...previous,
-      [sessionId]: messages,
+  const sessions = useMemo<ChatSessionEntry[]>(() => {
+    const allHistory = sessionsQuery.data ?? {};
+    return Object.keys(allHistory).map((id, index) => ({
+      id,
+      createdAt: new Date(Date.now() - index * 1000),
     }));
-  };
+  }, [sessionsQuery.data]);
 
-  const getOrCreateSession = async (): Promise<string> => {
-    if (sessionId) return sessionId;
+  const sessionMessagesFromHistory = useMemo(() => {
+    if (!sessionId) return null;
+    const sessionHistory = sessionsQuery.data?.[sessionId];
+    if (!sessionHistory) return null;
+    return normalizeHistoryToMessages(sessionHistory);
+  }, [sessionId, sessionsQuery.data]);
 
-    if (creatingSessionRef.current) {
-      return creatingSessionRef.current;
-    }
-
-    const pending = createChatSession().then((createdSessionId) => {
-      setSessionId(createdSessionId);
-      addSessionToList(createdSessionId);
-      return createdSessionId;
-    });
-
-    creatingSessionRef.current = pending;
-    try {
-      return await pending;
-    } finally {
-      creatingSessionRef.current = null;
-    }
-  };
+  const messages = sessionId
+    ? (sessionQuery.data ?? sessionMessagesFromHistory ?? [createInitialAssistantMessage()])
+    : draftMessages;
+  const showSuggestions = messages.length <= 1 && !isTyping;
 
   const handleCreateSession = async () => {
-    persistCurrentSessionMessages();
     setSessionId(null);
-    resetConversation();
+    setDraftMessages([createInitialAssistantMessage()]);
+    setInput("");
   };
 
   const handleSelectSession = (selectedSessionId: string) => {
-    persistCurrentSessionMessages();
-    const switchToSession = async () => {
-      const cachedMessages = sessionMessages[selectedSessionId];
-      const selectedMessages = cachedMessages ?? (await fetchSessionHistory(selectedSessionId));
-
-      setSessionMessages((previous) => ({
-        ...previous,
-        [selectedSessionId]: selectedMessages,
-      }));
-      setSessionId(selectedSessionId);
-      setMessages(selectedMessages);
-      setInput("");
-      setShowSuggestions(selectedMessages.length <= 1);
-      setIsTyping(false);
-    };
-
-    void switchToSession().catch(() => {
-      const selectedMessages = sessionMessages[selectedSessionId] ?? [
-        createInitialAssistantMessage(),
-      ];
-      setSessionId(selectedSessionId);
-      setMessages(selectedMessages);
-      setInput("");
-      setShowSuggestions(selectedMessages.length <= 1);
-      setIsTyping(false);
-    });
+    const seededHistory = sessionsQuery.data?.[selectedSessionId];
+    if (seededHistory) {
+      queryClient.setQueryData(
+        chatKeys.session(selectedSessionId),
+        normalizeHistoryToMessages(seededHistory),
+      );
+    }
+    setSessionId(selectedSessionId);
+    setInput("");
   };
-
-  useEffect(() => {
-    const initializeFromBackend = async () => {
-      try {
-        const allHistory = await fetchAllSessionHistory();
-        const loadedSessionMessages: Record<string, Message[]> = {};
-        const loadedSessions: ChatSessionEntry[] = Object.keys(allHistory).map((id, index) => {
-          loadedSessionMessages[id] = normalizeHistoryToMessages(allHistory[id]);
-          return {
-            id,
-            createdAt: new Date(Date.now() - index * 1000),
-          };
-        });
-
-        setSessionMessages(loadedSessionMessages);
-        setSessions(loadedSessions);
-      } catch {
-        // Keep local empty state when backend history is unavailable.
-      }
-    };
-
-    void initializeFromBackend();
-  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    setSessionMessages((previous) => ({
-      ...previous,
-      [sessionId]: messages,
-    }));
-  }, [messages, sessionId]);
 
   useEffect(() => {
     const textarea = inputRef.current;
@@ -427,33 +217,73 @@ export function ChatSidebar() {
       timestamp: new Date(),
     };
 
-    setMessages((previous) => [...previous, userMessage]);
     setInput("");
-    setIsTyping(true);
-    setShowSuggestions(false);
+    let currentSessionId = sessionId;
+    let workingMessages = sessionId ? messages : draftMessages;
 
-    const history = messages.map((message) => ({ role: message.role, content: message.content }));
-    let currentSessionId: string;
+    if (!currentSessionId) {
+      const pendingDraftMessages = [...draftMessages, userMessage];
+      setDraftMessages(pendingDraftMessages);
+      workingMessages = pendingDraftMessages;
 
-    try {
-      currentSessionId = await getOrCreateSession();
-    } catch {
-      setIsTyping(false);
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: "I could not create a chat session. Please try again in a moment.",
-          timestamp: new Date(),
-          stats: null,
-          backendConnected: false,
-        },
-      ]);
-      return;
+      try {
+        const createdSessionId = await createSessionMutation.mutateAsync();
+        currentSessionId = createdSessionId;
+        setSessionId(createdSessionId);
+
+        queryClient.setQueryData(chatKeys.sessions(), (previous?: AllSessionHistoryMap) => {
+          const next = { ...previous };
+          if (!next[createdSessionId]) next[createdSessionId] = {};
+          return next;
+        });
+      } catch {
+        setDraftMessages((previous) => [
+          ...previous,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: "I could not create a chat session. Please try again in a moment.",
+            timestamp: new Date(),
+            stats: null,
+            backendConnected: false,
+          },
+        ]);
+        return;
+      }
     }
 
-    const result = await sendChatMessage(text, history, currentSessionId);
+    const resolvedSessionId = currentSessionId;
+    if (!resolvedSessionId) return;
+
+    const sessionMessages =
+      queryClient.getQueryData<Message[]>(chatKeys.session(resolvedSessionId)) ?? workingMessages;
+    const optimisticUserMessages = sessionMessages.some((message) => message.id === userMessage.id)
+      ? sessionMessages
+      : [...sessionMessages, userMessage];
+    const placeholderId = `assistant-placeholder-${Date.now()}`;
+    const optimisticMessages: Message[] = [
+      ...optimisticUserMessages,
+      {
+        id: placeholderId,
+        role: "assistant",
+        content: "",
+        timestamp: new Date(),
+      },
+    ];
+
+    queryClient.setQueryData(chatKeys.session(resolvedSessionId), optimisticMessages);
+
+    const history = optimisticUserMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+
+    const result = await sendMessageMutation.mutateAsync({
+      message: text,
+      history,
+      sessionId: resolvedSessionId,
+    });
+
     const assistantMessage: Message = {
       id: (Date.now() + 1).toString(),
       role: "assistant",
@@ -463,13 +293,29 @@ export function ChatSidebar() {
       backendConnected: result.backendConnected,
     };
 
-    setIsTyping(false);
-    setMessages((previous) => [...previous, assistantMessage]);
+    queryClient.setQueryData(
+      chatKeys.session(resolvedSessionId),
+      (previous: Message[] | undefined) => {
+        const base = previous ?? optimisticMessages;
+        return base.map((message) => (message.id === placeholderId ? assistantMessage : message));
+      },
+    );
 
     if (result.backendConnected) {
-      void persistSessionTurn(currentSessionId, text, assistantMessage.content).catch(() => {
-        // Ignore persistence failures; the response is already shown to the user.
-      });
+      void persistTurnMutation
+        .mutateAsync({
+          sessionId: resolvedSessionId,
+          prompt: text,
+          responseText: assistantMessage.content,
+        })
+        .then(() => queryClient.invalidateQueries({ queryKey: chatKeys.sessions() }))
+        .catch(() => {
+          // Ignore persistence failures; the response is already shown to the user.
+        });
+    }
+
+    if (!sessionId) {
+      setDraftMessages([createInitialAssistantMessage()]);
     }
   };
 
