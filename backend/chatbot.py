@@ -9,10 +9,11 @@ from typing import Any
 from uuid import uuid4 # for generating unique session IDs
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field # use for data validation error checking
 
-app = FastAPI(title="Chatbot API", version="1.0.0")
+app = APIRouter(tags=["chatbot"])
+
 
 # In-memory session storage:
 # { session_id: { user_id: [ {"prompt": ..., "response": ...}, ... ] } }

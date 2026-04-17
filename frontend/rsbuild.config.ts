@@ -10,12 +10,12 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/chat": "http://localhost:4999",
-      "/fire": "http://localhost:4999",
-      "/image": "http://localhost:4999",
-      "/analyze": "http://localhost:4999",
-      "/api": "http://localhost:4999",
-      "/debug": "http://localhost:4999",
+      "/chat": "http://localhost:8000",
+      "/fire": "http://localhost:8000",
+      "/image": "http://localhost:8000",
+      "/analyze": "http://localhost:8000",
+      "/api": "http://localhost:8000",
+      "/debug": "http://localhost:8000",
     },
   },
   tools: {

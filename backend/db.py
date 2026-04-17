@@ -11,7 +11,7 @@ from typing import Any
 import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
@@ -29,7 +29,7 @@ from dataparser import (
 )
 
 
-app = FastAPI(title="Database & S3 API", version="1.0.0")
+app = APIRouter(tags=["data"])
 
 fire_labels_collection = labels_collection
 analysis_collection_name = os.getenv("MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results")

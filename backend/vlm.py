@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import requests
-from fastapi import FastAPI
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -23,7 +23,7 @@ from dataparser import (
     presigned_scene_image_urls,
 )
 
-app = FastAPI(title="VLM API", version="1.0.0")
+app = APIRouter(tags=["vlm"])
 
 # Prompt background information for the VLM
 _PROMPT_PREFIX = (
@@ -164,7 +164,7 @@ def persist_analysis_via_fire(
     has_post_image: bool,
 ) -> str:
     endpoint = (
-        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:4999').rstrip('/')}/fire"
+        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:8000').rstrip('/')}/fire"
     )
 
     # Create the VLM analysis result document structure
