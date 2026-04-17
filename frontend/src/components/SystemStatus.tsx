@@ -1,5 +1,6 @@
-import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "../lib/api";
+import { useMemo } from "react";
 
 interface DebugHealthResponse {
   status: "ok";
@@ -15,51 +16,50 @@ interface DebugHealthResponse {
 }
 
 export function SystemStatus() {
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [health, setHealth] = React.useState<DebugHealthResponse | null>(null);
-  const [lastCheckedAt, setLastCheckedAt] = React.useState<Date | null>(null);
-
-  const load = React.useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/debug/health`, { cache: "no-store" });
+  const healthQuery = useQuery<DebugHealthResponse>({
+    queryKey: ["debug", "health"],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE}/debug/health`, {
+        cache: "no-store",
+      });
       if (!response.ok) {
         throw new Error(`Health check failed (${response.status})`);
       }
-      setHealth((await response.json()) as DebugHealthResponse);
-      setLastCheckedAt(new Date());
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-      setHealth(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return (await response.json()) as DebugHealthResponse;
+    },
+    refetchInterval: 15_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
 
-  React.useEffect(() => {
-    void load();
-  }, [load]);
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => {
-      void load();
-    }, 15000);
-
-    return () => window.clearInterval(timer);
-  }, [load]);
+  const health = healthQuery.data ?? null;
+  const isLoading = healthQuery.isLoading;
+  const error = useMemo(() => {
+    if (!healthQuery.error) return null;
+    return healthQuery.error instanceof Error
+      ? healthQuery.error.message
+      : null;
+  }, [healthQuery.error]);
+  const lastCheckedAt = useMemo(() => {
+    if (!healthQuery.dataUpdatedAt) return null;
+    return new Date(healthQuery.dataUpdatedAt);
+  }, [healthQuery.dataUpdatedAt]);
 
   const issues: string[] = [];
   if (health && health.mongodb && health.mongodb.connected === false)
     issues.push("MongoDB not connected");
-  if (health && health.s3 && health.s3.connected === false) issues.push("S3 not connected");
+  if (health && health.s3 && health.s3.connected === false)
+    issues.push("S3 not connected");
 
   return (
     <section className="status-card">
       <div className="status-head">
         <h3>System Status</h3>
-        <button className="status-refresh" onClick={() => void load()} type="button">
+        <button
+          className="status-refresh"
+          onClick={() => void healthQuery.refetch()}
+          type="button"
+        >
           Refresh
         </button>
       </div>
@@ -81,7 +81,9 @@ export function SystemStatus() {
             <span>S3 prefix</span>
             <span>{health.s3ImagesPrefix ?? "-"}</span>
             <span>Last checked</span>
-            <span>{lastCheckedAt ? lastCheckedAt.toLocaleTimeString() : "-"}</span>
+            <span>
+              {lastCheckedAt ? lastCheckedAt.toLocaleTimeString() : "-"}
+            </span>
           </div>
 
           <div className="chip-row">
@@ -90,7 +92,9 @@ export function SystemStatus() {
             >
               mongodb {health.mongodb?.connected === false ? "down" : "ok"}
             </span>
-            <span className={`chip ${health.s3?.connected === false ? "chip-bad" : "chip-ok"}`}>
+            <span
+              className={`chip ${health.s3?.connected === false ? "chip-bad" : "chip-ok"}`}
+            >
               s3 {health.s3?.connected === false ? "down" : "ok"}
             </span>
           </div>
