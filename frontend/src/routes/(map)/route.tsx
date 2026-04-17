@@ -1,7 +1,12 @@
-import { CatchBoundary, Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  CatchBoundary,
+  Outlet,
+  createFileRoute,
+  useNavigate,
+} from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
-import { ChatSidebar } from "../../components/ChatSidebar/ChatSidebar.tsx";
+import { ChatSidebar } from "../../components/ChatSidebar/ChatSidebar";
 import { SystemStatus } from "../../components/SystemStatus";
 import { MapProvider, useMapContext } from "../../context/MapContext";
 import "./-map.css";
@@ -10,7 +15,13 @@ export const Route = createFileRoute("/(map)")({
   component: MapLayoutRoute,
 });
 
-function MapErrorFallback({ error, reset }: { error: Error; reset: () => void }) {
+function MapErrorFallback({
+  error,
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
   return (
     <div className="result-block">
       Unable to initialize map rendering on this device.
@@ -49,7 +60,9 @@ function MapLayout() {
       <div className="map-canvas">
         <CatchBoundary
           errorComponent={MapErrorFallback}
-          getResetKey={() => `${activeDisasterId ?? "none"}:${activeFeatureId ?? "none"}`}
+          getResetKey={() =>
+            `${activeDisasterId ?? "none"}:${activeFeatureId ?? "none"}`
+          }
           onCatch={() => {
             // Keep map failures isolated so panel routes remain usable.
           }}
@@ -80,7 +93,10 @@ function MapLayout() {
         </div>
       </aside>
 
-      <aside className="chat-sidebar-panel" aria-label="Disaster assessment chat sidebar">
+      <aside
+        className="chat-sidebar-panel"
+        aria-label="Disaster assessment chat sidebar"
+      >
         <ChatSidebar />
       </aside>
     </div>
