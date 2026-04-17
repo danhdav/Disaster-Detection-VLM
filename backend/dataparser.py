@@ -43,7 +43,9 @@ def test_s3_connection() -> bool:
     try:
         s3_client.head_bucket(Bucket=bucket_name)
         return True
-    except Exception:
+    except Exception as e:
+        print("S3 connection failed")
+        print(e)
         return False
 
 

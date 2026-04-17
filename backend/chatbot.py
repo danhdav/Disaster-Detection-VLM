@@ -160,6 +160,7 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}") from exc
     except RuntimeError as exc:
+        print(f"RuntimeError: {exc}")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return {"response": text, "message": text, "stats": None}
