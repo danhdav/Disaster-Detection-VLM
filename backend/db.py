@@ -8,11 +8,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
@@ -167,23 +166,14 @@ async def get_scene_image(scene_id: str, phase: str):
         if not target_url:
             raise HTTPException(status_code=404, detail="Image URL not found")
 
-        upstream = requests.get(target_url, stream=True, timeout=30)
-        upstream.raise_for_status()
+        return RedirectResponse(target_url)
 
-        content_type = upstream.headers.get("Content-Type", "image/png")
-        return StreamingResponse(
-            upstream.iter_content(chunk_size=1024 * 64),
-            media_type=content_type,
-            headers={"Cache-Control": "public, max-age=300"},
-        )
     except HTTPException:
         raise
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"S3 proxy request failed: {e}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
