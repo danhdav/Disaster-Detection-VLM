@@ -186,7 +186,9 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
         scenes: new Map<string, { hasFeatures: boolean }>(),
       };
       const hasFeatures = (doc.features?.lng_lat ?? []).length > 0;
-      const currentScene = existing.scenes.get(sceneId) ?? { hasFeatures: false };
+      const currentScene = existing.scenes.get(sceneId) ?? {
+        hasFeatures: false,
+      };
       existing.scenes.set(sceneId, {
         hasFeatures: currentScene.hasFeatures || hasFeatures,
       });
@@ -342,11 +344,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
 
     const pre = phaseFromDoc(
       preDoc,
-      preDoc ? `/image/${encodeURIComponent(activeSceneId)}/pre` : undefined,
+      preDoc ? API_BASE + `/image/${encodeURIComponent(activeSceneId)}/pre` : undefined,
     );
     const post = phaseFromDoc(
       postDoc,
-      postDoc ? `/image/${encodeURIComponent(activeSceneId)}/post` : undefined,
+      postDoc ? API_BASE + `/image/${encodeURIComponent(activeSceneId)}/post` : undefined,
     );
 
     const chosen = (post?.features.lng_lat ?? []).length > 0 ? post : pre;
