@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
-from backend.dataparser import (
+from dataparser import (
     S3_IMAGES_PREFIX,
     bucket_name,
     labels_collection,

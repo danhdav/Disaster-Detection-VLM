@@ -1,8 +1,8 @@
-'''
+"""
 This file runs VLM analysis on a disaster using OpenRouter.
 In the frontend, the user will press the "VLM analysis" button for a specific disaster location. It will send a request to the /analyze endpoint.
 The response will include the VLM's analysis text, the model used, and metadata about the scene and feature analyzed.
-'''
+"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from backend.dataparser import (
+from dataparser import (
     fetch_scene_label_documents,
     find_feature_by_uid,
     extract_label_data,
@@ -36,7 +36,9 @@ _PROMPT_PREFIX = (
 
 
 def _error_response(status_code: int, error: str) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"status": "error", "error": error})
+    return JSONResponse(
+        status_code=status_code, content={"status": "error", "error": error}
+    )
 
 
 def _resolve_scene_image_urls(
@@ -48,23 +50,30 @@ def _resolve_scene_image_urls(
         return pre_data_url, post_data_url
 
     urls = presigned_scene_image_urls(scene_id)
-    resolved_pre = pre_data_url if pre_data_url is not None else urls.get("pre_image_url")
-    resolved_post = post_data_url if post_data_url is not None else urls.get("post_image_url")
+    resolved_pre = (
+        pre_data_url if pre_data_url is not None else urls.get("pre_image_url")
+    )
+    resolved_post = (
+        post_data_url if post_data_url is not None else urls.get("post_image_url")
+    )
     return resolved_pre, resolved_post
 
 
-def _append_image_content(content: list[dict[str, Any]], label: str, image_url: str | None) -> None:
+def _append_image_content(
+    content: list[dict[str, Any]], label: str, image_url: str | None
+) -> None:
     if not image_url:
         return
     content.append({"type": "text", "text": f"{label} image:"})
     content.append({"type": "image_url", "image_url": {"url": image_url}})
 
+
 # Call OpenRouter with the prompt and return the response
 def openrouter_analysis(
     # Required parameters for the VLM
     feature: dict[str, Any] | None,
-    pre_data_url: str | None, # pre-image URL
-    post_data_url: str | None, # post-image URL
+    pre_data_url: str | None,  # pre-image URL
+    post_data_url: str | None,  # post-image URL
     disaster_id: str,
     scene_id: str,
     model_name: str,
@@ -107,7 +116,6 @@ def openrouter_analysis(
         else:
             print(f"OTHER CONTENT: {item}")
 
-
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -134,6 +142,7 @@ def openrouter_analysis(
                 parts.append(item.get("text", ""))
         return "\n".join(parts).strip()
     return str(body)
+
 
 class AnalyzeRequest(BaseModel):
     disasterId: str = Field(min_length=1)
@@ -183,15 +192,15 @@ def persist_analysis_via_fire(
     inserted_id = body.get("_id")
 
     if not inserted_id:
-        raise RuntimeError("POST /fire did not return an inserted VLM analysis document")
+        raise RuntimeError(
+            "POST /fire did not return an inserted VLM analysis document"
+        )
     return str(inserted_id)
 
 
 # Run VLM analysis
 @app.post("/analyze", response_model=None)
-def analyze_with_openrouter(
-    body: AnalyzeRequest
-    ) -> dict[str, Any] | JSONResponse:
+def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONResponse:
     disaster_id = body.disasterId
     scene_id = body.sceneId
     feature_id = body.featureId
@@ -231,7 +240,7 @@ def analyze_with_openrouter(
         return _error_response(status_code=503, error=str(exc))
     except FileNotFoundError as exc:
         return _error_response(status_code=404, error=f"S3 imagery: {exc}")
-        
+
     if feature is None and feature_id:
         feature = find_feature_by_uid(pre_phase, post_phase, feature_id)
 
@@ -245,7 +254,9 @@ def analyze_with_openrouter(
             model_name=model_name,
         )
     except requests.RequestException as exc:
-        return _error_response(status_code=502, error=f"OpenRouter request failed: {exc}")
+        return _error_response(
+            status_code=502, error=f"OpenRouter request failed: {exc}"
+        )
     except Exception as exc:  # pragma: no cover - runtime guard
         return _error_response(status_code=500, error=str(exc))
 
@@ -260,9 +271,13 @@ def analyze_with_openrouter(
             has_post_image=bool(post_data_url),
         )
     except requests.RequestException as exc:
-        return _error_response(status_code=502, error=f"Persisting analysis via /fire failed: {exc}")
+        return _error_response(
+            status_code=502, error=f"Persisting analysis via /fire failed: {exc}"
+        )
     except Exception as exc:
-        return _error_response(status_code=500, error=f"Persisting analysis via /fire failed: {exc}")
+        return _error_response(
+            status_code=500, error=f"Persisting analysis via /fire failed: {exc}"
+        )
 
     return {
         "status": "ok",
