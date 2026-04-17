@@ -6,7 +6,7 @@ from typing import Any
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from pymongo.errors import PyMongoError
 
 from storage import (
@@ -25,7 +25,7 @@ This file contains API endpoints for the dataset (i.e interacting with MongoDB a
 To view the documentation UI, visit /docs
 '''
 
-app = FastAPI(title="Database & S3 API", version="1.0.0")
+router = APIRouter(tags=["data"])
 
 fire_labels_collection = labels_collection
 
@@ -46,7 +46,7 @@ def _require_s3():
         )
 
 
-@app.get("/fire", response_model=list[dict[str, Any]])
+@router.get("/fire", response_model=list[dict[str, Any]])
 async def get_fire_labels():
     _require_mongo()
     assert fire_labels_collection is not None
@@ -60,7 +60,7 @@ async def get_fire_labels():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 # Query the full image name without the .png extension
-@app.get("/fire/search/{img_name}")
+@router.get("/fire/search/{img_name}")
 async def search_fire_label(img_name: str):
     _require_mongo()
     assert fire_labels_collection is not None
@@ -77,7 +77,7 @@ async def search_fire_label(img_name: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/fire")
+@router.post("/fire")
 async def add_fire_label(data: dict[str, Any]):
     _require_mongo()
     assert fire_labels_collection is not None
@@ -90,7 +90,7 @@ async def add_fire_label(data: dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.delete("/fire/{label_id}")
+@router.delete("/fire/{label_id}")
 async def delete_fire_label(label_id: str):
     _require_mongo()
     assert fire_labels_collection is not None
@@ -109,7 +109,7 @@ async def delete_fire_label(label_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.get("/image/{disaster_name}")
+@router.get("/image/{disaster_name}")
 async def get_image_urls(disaster_name: str):
     _require_s3()
     try:
@@ -122,7 +122,7 @@ async def get_image_urls(disaster_name: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.get("/debug/health")
+@router.get("/debug/health")
 async def check_disasters():
     mongo_ok = test_mongodb_connection()
     s3_ok = test_s3_connection()

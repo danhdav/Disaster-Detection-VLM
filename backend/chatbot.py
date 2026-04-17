@@ -7,10 +7,10 @@ from typing import Any
 from uuid import uuid4
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="Chatbot API", version="1.0.0")
+router = APIRouter(tags=["chatbot"])
 
 # In-memory session storage:
 # { session_id: { user_id: [ {"prompt": ..., "response": ...}, ... ] } }
@@ -73,12 +73,12 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
     return str(content_value)
 
 
-@app.get("/")
+@router.get("/chat")
 def index() -> dict[str, str]:
     return {"message": "Chatbot API", "docs": "/docs"}
 
 # Create a new chat session and return its ID
-@app.post("/chat/sessions", status_code=201)
+@router.post("/chat/sessions", status_code=201)
 def create_session() -> dict[str, str]:
     session_id = str(uuid4())
     chat_sessions[session_id] = {}
@@ -86,7 +86,7 @@ def create_session() -> dict[str, str]:
 
 
 # Delete a session and its history (run for server restarts or cleanup)
-@app.delete("/chat/sessions/{session_id}")
+@router.delete("/chat/sessions/{session_id}")
 def delete_session(session_id: str) -> dict[str, str]:
     if session_id not in chat_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -95,12 +95,12 @@ def delete_session(session_id: str) -> dict[str, str]:
     return {"message": f"Session {session_id} deleted"}
 
 # Get all chat sessions and their histories (for debugging; not paginated)
-@app.get("/chat/history")
+@router.get("/chat/history")
 def get_all_history() -> dict[str, dict[str, list[dict[str, str]]]]:
     return chat_sessions
 
 # Get the chat history for a specific session
-@app.get("/chat/history/{session_id}", response_model=SessionHistoryResponse)
+@router.get("/chat/history/{session_id}", response_model=SessionHistoryResponse)
 def get_session_history(session_id: str) -> SessionHistoryResponse:
     history = chat_sessions.get(session_id)
     if history is None:
@@ -110,7 +110,7 @@ def get_session_history(session_id: str) -> SessionHistoryResponse:
 
 
 # Add to a session's chat history; should be called after every message exchange (user prompt + assistant response)
-@app.post("/chat/history/{session_id}", response_model=SessionHistoryResponse)
+@router.post("/chat/history/{session_id}", response_model=SessionHistoryResponse)
 def add_to_history(session_id: str, message: ChatMessageIn) -> SessionHistoryResponse:
     if session_id not in chat_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -123,7 +123,7 @@ def add_to_history(session_id: str, message: ChatMessageIn) -> SessionHistoryRes
     return SessionHistoryResponse(session_id=session_id, history=session_history)
 
 # Call this endpoint every time a new chat is sent
-@app.post("/api/chat")
+@router.post("/api/chat")
 def api_chat(body: ChatApiRequest) -> dict[str, Any]:
     # System prompt (runs before user prompt at the start of every conversation)
     system = (

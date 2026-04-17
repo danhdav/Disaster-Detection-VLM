@@ -10,7 +10,7 @@ import os
 from typing import Any
 
 import requests
-from fastapi import FastAPI
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -21,7 +21,7 @@ from storage import (
     presigned_scene_image_urls,
 )
 
-app = FastAPI(title="VLM API", version="1.0.0")
+router = APIRouter(tags=["vlm"])
 
 # Prompt background information for the VLM
 _PROMPT_PREFIX = {
@@ -116,7 +116,7 @@ class AnalyzeRequest(BaseModel):
     feature: dict[str, Any] | None = None
 
 
-@app.post("/analyze", response_model=None)
+@router.post("/analyze", response_model=None)
 def analyze_with_openrouter(
     body: AnalyzeRequest
     ) -> dict[str, Any] | JSONResponse:

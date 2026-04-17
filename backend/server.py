@@ -1,66 +1,88 @@
-# This file will start the flask server
+"""Main backend entrypoint with one FastAPI app and module sub-routers."""
 
+from __future__ import annotations
+
+import os
 from pathlib import Path
-from collections.abc import Callable
 
+import uvicorn
 from dotenv import load_dotenv
-from a2wsgi import ASGIMiddleware
-from flask import Flask
-from flask_cors import CORS
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load local environment variables before importing API modules.
 load_dotenv(Path(__file__).with_name(".env"))
 
-# import FastAPI apps
-from chatbot import app as chatbot_api
-from db import app as db_api
-from vlm import app as vlm_api
-
-app = Flask(__name__)
-CORS(app)
-
-# Wrap APIs in middleware
-chatbot_wsgi = ASGIMiddleware(chatbot_api)
-db_wsgi = ASGIMiddleware(db_api)
-vlm_wsgi = ASGIMiddleware(vlm_api)
+from chatbot import router as chatbot_router
+from db import router as db_router
+from vlm import router as vlm_router
 
 
-def _is_chatbot_path(path: str) -> bool:
-    return path.startswith("/chat") or path == "/api/chat"
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
-def _is_db_path(path: str) -> bool:
-    return (
-        path == "/fire"
-        or path.startswith("/fire/")
-        or path.startswith("/image/")
-        or path == "/debug/health"
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+def _cors_origins() -> list[str]:
+    raw_origins = os.getenv("CORS_ALLOW_ORIGINS", "*").strip()
+    if raw_origins == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="Disaster Detection API", version="1.0.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(),
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
+    app.include_router(chatbot_router)
+    app.include_router(db_router)
+    app.include_router(vlm_router)
+
+    @app.get("/")
+    def index() -> dict[str, str]:
+        return {"message": "Disaster Detection API", "docs": "/docs"}
+
+    return app
 
 
-def _is_vlm_path(path: str) -> bool:
-    return path == "/analyze"
+app = create_app()
 
-
-def _dispatch_apis(default_wsgi: Callable):
-    def _wsgi(environ: dict, start_response: Callable):
-        path = environ.get("PATH_INFO", "")
-        if _is_chatbot_path(path):
-            return chatbot_wsgi(environ, start_response)
-        if _is_db_path(path):
-            return db_wsgi(environ, start_response)
-        if _is_vlm_path(path):
-            return vlm_wsgi(environ, start_response)
-        return default_wsgi(environ, start_response)
-
-    return _wsgi
-
-
-app.wsgi_app = _dispatch_apis(app.wsgi_app)  # type: ignore[assignment]
-
-@app.route("/")
-def index():
-    return "Running Flask server"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    host = os.getenv("HOST", "0.0.0.0")
+    port = _env_int("PORT", 8000)
+    workers = _env_int("UVICORN_WORKERS", 2)
+    log_level = os.getenv("UVICORN_LOG_LEVEL", "info")
+    access_log = _env_bool("UVICORN_ACCESS_LOG", True)
+    timeout_keep_alive = _env_int("UVICORN_TIMEOUT_KEEP_ALIVE", 5)
+    timeout_graceful_shutdown = _env_int("UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN", 30)
+    uvicorn.run(
+        "server:app",
+        host=host,
+        port=port,
+        workers=workers,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+        log_level=log_level,
+        access_log=access_log,
+        timeout_keep_alive=timeout_keep_alive,
+        timeout_graceful_shutdown=timeout_graceful_shutdown,
+    )
