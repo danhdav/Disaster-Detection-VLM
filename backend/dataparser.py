@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import os
 from typing import Any
-import boto3 # S3 client
+import boto3  # S3 client
 from botocore.exceptions import ClientError
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
+from botocore.config import Config
 
 
 # Load local environment variables
@@ -23,7 +24,12 @@ _db = mongo_client[mongo_db_name] if mongo_client is not None else None
 labels_collection: Collection | None = _db[mongo_collection_name] if _db is not None else None
 
 bucket_name = os.getenv("S3_BUCKET_NAME")
-s3_client = boto3.client("s3") if bucket_name else None
+my_config = Config(
+    region_name="us-east-2",
+    signature_version="v4",
+    retries={"max_attempts": 10, "mode": "standard"},
+)
+s3_client = boto3.client("s3", config=my_config) if bucket_name else None
 S3_IMAGES_PREFIX = "xview2-test-data/images/"
 _SCENE_PHASES = ("pre", "post")
 
