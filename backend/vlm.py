@@ -154,7 +154,9 @@ def persist_analysis_via_fire(
     has_pre_image: bool,
     has_post_image: bool,
 ) -> str:
-    endpoint = f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:5000').rstrip('/')}/fire"
+    endpoint = (
+        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:4999').rstrip('/')}/fire"
+    )
 
     # Create the VLM analysis result document structure
     document = {

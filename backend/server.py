@@ -58,9 +58,11 @@ def _dispatch_apis(default_wsgi: Callable):
 
 app.wsgi_app = _dispatch_apis(app.wsgi_app)  # type: ignore[assignment]
 
+
 @app.route("/")
 def index():
     return "Running Flask server"
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=4999)
