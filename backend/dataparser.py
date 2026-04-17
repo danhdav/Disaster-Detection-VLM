@@ -1,6 +1,6 @@
-'''
+"""
 This file contains functions to fetch and parse through MongoDB and AWS S3 data
-'''
+"""
 
 from __future__ import annotations
 
@@ -21,7 +21,9 @@ mongo_collection_name = os.getenv("MONGO_COLLECTION_NAME", "fire_labels")
 
 mongo_client: MongoClient | None = MongoClient(mongo_uri) if mongo_uri else None
 _db = mongo_client[mongo_db_name] if mongo_client is not None else None
-labels_collection: Collection | None = _db[mongo_collection_name] if _db is not None else None
+labels_collection: Collection | None = (
+    _db[mongo_collection_name] if _db is not None else None
+)
 
 bucket_name = os.getenv("S3_BUCKET_NAME")
 my_config = Config(
@@ -33,6 +35,7 @@ s3_client = boto3.client("s3", config=my_config) if bucket_name else None
 S3_IMAGES_PREFIX = "xview2-test-data/images/"
 _SCENE_PHASES = ("pre", "post")
 
+
 # Test connections at load time
 def test_mongodb_connection() -> bool:
     if mongo_client is None:
@@ -42,6 +45,7 @@ def test_mongodb_connection() -> bool:
         return True
     except PyMongoError:
         return False
+
 
 def test_s3_connection() -> bool:
     if s3_client is None or not bucket_name:
@@ -60,7 +64,7 @@ def fetch_scene_label_documents(
     disaster_id: str,
     scene_id: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    
+
     if labels_collection is None:
         raise RuntimeError("MongoDB is not configured (MONGO_URI)")
 
@@ -95,7 +99,8 @@ def presigned_scene_image_urls(scene_base_name: str) -> dict[str, str]:
         raise RuntimeError("S3 is not configured (S3_BUCKET_NAME)")
 
     keys_by_phase = {
-        phase: f"{S3_IMAGES_PREFIX}{scene_base_name}_{phase}_disaster.png" for phase in _SCENE_PHASES
+        phase: f"{S3_IMAGES_PREFIX}{scene_base_name}_{phase}_disaster.png"
+        for phase in _SCENE_PHASES
     }
 
     for key in keys_by_phase.values():
@@ -149,7 +154,9 @@ def parse_polygon_wkt_bounds(wkt: str) -> list[float] | None:
 
 
 # Merge 2 bounding boxes
-def merge_bounds(base: list[float] | None, nxt: list[float] | None) -> list[float] | None:
+def merge_bounds(
+    base: list[float] | None, nxt: list[float] | None
+) -> list[float] | None:
     if base is None:
         return nxt
     if nxt is None:

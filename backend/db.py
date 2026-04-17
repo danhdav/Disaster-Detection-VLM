@@ -1,7 +1,7 @@
-'''
+"""
 This file contains API endpoints for the dataset (i.e interacting with MongoDB and AWS S3)
 To view the documentation UI, visit /docs
-'''
+"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
+
 
 from dataparser import (
     S3_IMAGES_PREFIX,
@@ -31,9 +32,13 @@ from dataparser import (
 app = APIRouter(tags=["data"])
 
 fire_labels_collection = labels_collection
-analysis_collection_name = os.getenv("MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results")
+analysis_collection_name = os.getenv(
+    "MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results"
+)
 analysis_collection: Collection | None = (
-    mongo_client[mongo_db_name][analysis_collection_name] if mongo_client is not None else None
+    mongo_client[mongo_db_name][analysis_collection_name]
+    if mongo_client is not None
+    else None
 )
 
 
@@ -75,6 +80,7 @@ async def get_fire_labels():
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+
 # Get a fire label by its metadata.img_name field (e.g. "scene00000123_pre_disaster.png")
 @app.get("/fire/search/{img_name}")
 async def search_fire_label(img_name: str):
@@ -92,6 +98,7 @@ async def search_fire_label(img_name: str):
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+
 # Add a fire label document
 @app.post("/fire")
 async def add_fire_label(
@@ -101,7 +108,9 @@ async def add_fire_label(
     _require_mongo()
     target_collection = _get_target_collection(collection)
     if target_collection is None:
-        raise HTTPException(status_code=500, detail=f"Collection '{collection}' is not configured")
+        raise HTTPException(
+            status_code=500, detail=f"Collection '{collection}' is not configured"
+        )
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
     try:
@@ -113,6 +122,7 @@ async def add_fire_label(
         }
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 # Deletes a fire label; should be used to remove generated vlm analyses' ground truth labels after server restart
 @app.delete("/fire/{label_id}")
@@ -148,10 +158,12 @@ async def get_image_urls(disaster_name: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-'''
+"""
 Gets the disaster image for a given scene and phase (pre or post)
 scene_id format follows the following example: santa-rosa-wildfire_00000257
-'''
+"""
+
+
 @app.get("/image/{scene_id}/{phase}")
 async def get_scene_image(scene_id: str, phase: str):
     _require_s3()
