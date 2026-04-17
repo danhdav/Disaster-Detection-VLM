@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { ChatSidebar } from "../components/ChatSidebar.tsx";
+import { ChatSidebar } from "../components/ChatSidebar/ChatSidebar";
 
 export const Route = createFileRoute("/chat")({
   component: ChatPage,
