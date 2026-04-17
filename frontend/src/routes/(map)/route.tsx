@@ -1,5 +1,9 @@
-import * as React from "react";
-import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  CatchBoundary,
+  Outlet,
+  createFileRoute,
+  useNavigate,
+} from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
 import { ChatSidebar } from "../../components/ChatSidebar.tsx";
@@ -11,35 +15,24 @@ export const Route = createFileRoute("/(map)")({
   component: MapLayoutRoute,
 });
 
-class MapErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean; message: string | null }
-> {
-  public constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, message: null };
-  }
-
-  public static getDerivedStateFromError(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { hasError: true, message };
-  }
-
-  public componentDidCatch() {
-    // Keep map failures isolated so panel routes remain usable.
-  }
-
-  public render() {
-    if (this.state.hasError) {
-      return (
-        <div className="result-block">
-          Unable to initialize map rendering on this device.
-          {this.state.message ? ` ${this.state.message}` : ""}
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+function MapErrorFallback({
+  error,
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
+  return (
+    <div className="result-block">
+      Unable to initialize map rendering on this device.
+      {error.message ? ` ${error.message}` : ""}
+      <div>
+        <button className="panel-button" onClick={reset} type="button">
+          Retry map
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function MapLayoutRoute() {
@@ -65,7 +58,13 @@ function MapLayout() {
   return (
     <div className="map-layout">
       <div className="map-canvas">
-        <MapErrorBoundary>
+        <CatchBoundary
+          errorComponent={MapErrorFallback}
+          getResetKey={() => `${activeDisasterId ?? "none"}:${activeFeatureId ?? "none"}`}
+          onCatch={() => {
+            // Keep map failures isolated so panel routes remain usable.
+          }}
+        >
           <MapView
             geoJson={geoJson}
             bounds={sceneBounds}
@@ -82,7 +81,7 @@ function MapLayout() {
               });
             }}
           />
-        </MapErrorBoundary>
+        </CatchBoundary>
       </div>
 
       <aside className="floating-panel">
