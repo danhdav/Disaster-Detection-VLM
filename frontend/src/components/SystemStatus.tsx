@@ -36,9 +36,7 @@ export function SystemStatus() {
   const isLoading = healthQuery.isLoading;
   const error = useMemo(() => {
     if (!healthQuery.error) return null;
-    return healthQuery.error instanceof Error
-      ? healthQuery.error.message
-      : null;
+    return healthQuery.error instanceof Error ? healthQuery.error.message : null;
   }, [healthQuery.error]);
   const lastCheckedAt = useMemo(() => {
     if (!healthQuery.dataUpdatedAt) return null;
@@ -48,18 +46,13 @@ export function SystemStatus() {
   const issues: string[] = [];
   if (health && health.mongodb && health.mongodb.connected === false)
     issues.push("MongoDB not connected");
-  if (health && health.s3 && health.s3.connected === false)
-    issues.push("S3 not connected");
+  if (health && health.s3 && health.s3.connected === false) issues.push("S3 not connected");
 
   return (
     <section className="status-card">
       <div className="status-head">
         <h3>System Status</h3>
-        <button
-          className="status-refresh"
-          onClick={() => void healthQuery.refetch()}
-          type="button"
-        >
+        <button className="status-refresh" onClick={() => void healthQuery.refetch()} type="button">
           Refresh
         </button>
       </div>
@@ -81,9 +74,7 @@ export function SystemStatus() {
             <span>S3 prefix</span>
             <span>{health.s3ImagesPrefix ?? "-"}</span>
             <span>Last checked</span>
-            <span>
-              {lastCheckedAt ? lastCheckedAt.toLocaleTimeString() : "-"}
-            </span>
+            <span>{lastCheckedAt ? lastCheckedAt.toLocaleTimeString() : "-"}</span>
           </div>
 
           <div className="chip-row">
@@ -92,9 +83,7 @@ export function SystemStatus() {
             >
               mongodb {health.mongodb?.connected === false ? "down" : "ok"}
             </span>
-            <span
-              className={`chip ${health.s3?.connected === false ? "chip-bad" : "chip-ok"}`}
-            >
+            <span className={`chip ${health.s3?.connected === false ? "chip-bad" : "chip-ok"}`}>
               s3 {health.s3?.connected === false ? "down" : "ok"}
             </span>
           </div>

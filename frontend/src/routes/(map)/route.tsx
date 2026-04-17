@@ -1,9 +1,4 @@
-import {
-  CatchBoundary,
-  Outlet,
-  createFileRoute,
-  useNavigate,
-} from "@tanstack/react-router";
+import { CatchBoundary, Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
 import { ChatSidebar } from "../../components/ChatSidebar.tsx";
@@ -15,13 +10,7 @@ export const Route = createFileRoute("/(map)")({
   component: MapLayoutRoute,
 });
 
-function MapErrorFallback({
-  error,
-  reset,
-}: {
-  error: Error;
-  reset: () => void;
-}) {
+function MapErrorFallback({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="result-block">
       Unable to initialize map rendering on this device.

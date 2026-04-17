@@ -4,9 +4,7 @@ import type { Feature } from "geojson";
 
 import { useMapContext } from "../../../../../context/MapContext";
 
-export const Route = createFileRoute(
-  "/(map)/disasters/$disasterId/features/$featureId",
-)({
+export const Route = createFileRoute("/(map)/disasters/$disasterId/features/$featureId")({
   component: FeatureDetailPanel,
 });
 
@@ -23,12 +21,8 @@ function flattenAnalysisValue(value: unknown, path = ""): string[] {
     return [path ? `${path}: null` : "null"];
   }
 
-  const stringValue = value.toString();
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  const stringValue = JSON.stringify(value);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return [path ? `${path}: ${stringValue}` : stringValue];
   }
 
@@ -43,12 +37,7 @@ function flattenAnalysisValue(value: unknown, path = ""): string[] {
     }
 
     value.forEach((item, index) => {
-      lines.push(
-        ...flattenAnalysisValue(
-          item,
-          path ? `${path}[${index}]` : `[${index}]`,
-        ),
-      );
+      lines.push(...flattenAnalysisValue(item, path ? `${path}[${index}]` : `[${index}]`));
     });
 
     return lines;
@@ -66,9 +55,7 @@ function flattenAnalysisValue(value: unknown, path = ""): string[] {
     }
 
     for (const [key, nestedValue] of entries) {
-      lines.push(
-        ...flattenAnalysisValue(nestedValue, path ? `${path}.${key}` : key),
-      );
+      lines.push(...flattenAnalysisValue(nestedValue, path ? `${path}.${key}` : key));
     }
 
     return lines;
@@ -126,17 +113,11 @@ function FeatureDetailPanel() {
 
   const preImageSrc = sceneLabels?.pre?.imageUrl ?? null;
   const postImageSrc = sceneLabels?.post?.imageUrl ?? null;
-  const analysisLines = analysisResult
-    ? formatAnalysisResult(analysisResult)
-    : [];
+  const analysisLines = analysisResult ? formatAnalysisResult(analysisResult) : [];
 
   return (
     <>
-      <Link
-        className="panel-link"
-        params={{ disasterId }}
-        to="/disasters/$disasterId"
-      >
+      <Link className="panel-link" params={{ disasterId }} to="/disasters/$disasterId">
         Back to region
       </Link>
 
@@ -196,9 +177,7 @@ function FeatureDetailPanel() {
           ))}
         </div>
       ) : (
-        <p>
-          Run analysis to request a structure-level assessment from the VLM.
-        </p>
+        <p>Run analysis to request a structure-level assessment from the VLM.</p>
       )}
     </>
   );
