@@ -8,16 +8,6 @@ export default defineConfig({
   dev: {
     lazyCompilation: false,
   },
-  server: {
-    proxy: {
-      "/chat": "http://localhost:8000",
-      "/fire": "http://localhost:8000",
-      "/image": "http://localhost:8000",
-      "/analyze": "http://localhost:8000",
-      "/api": "http://localhost:8000",
-      "/debug": "http://localhost:8000",
-    },
-  },
   tools: {
     rspack: {
       plugins: [
