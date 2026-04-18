@@ -80,9 +80,7 @@ function StatCards({ stats }: { stats: Record<string, string | number> }) {
           >
             {value}
           </span>
-          <span className={classes.surgeChatStatLabel}>
-            {key.replace(/_/g, " ")}
-          </span>
+          <span className={classes.surgeChatStatLabel}>{key.replace(/_/g, " ")}</span>
         </div>
       ))}
     </div>
@@ -182,8 +180,7 @@ export function ChatSidebar() {
   }, [sessionId, sessionsQuery.data]);
 
   const messages = sessionId
-    ? (sessionQuery.data ??
-      sessionMessagesFromHistory ?? [createInitialAssistantMessage()])
+    ? (sessionQuery.data ?? sessionMessagesFromHistory ?? [createInitialAssistantMessage()])
     : draftMessages;
   const showSuggestions = messages.length <= 1 && !isTyping;
 
@@ -242,22 +239,18 @@ export function ChatSidebar() {
         currentSessionId = createdSessionId;
         setSessionId(createdSessionId);
 
-        queryClient.setQueryData(
-          chatKeys.sessions(),
-          (previous?: AllSessionHistoryMap) => {
-            const next = { ...previous };
-            if (!next[createdSessionId]) next[createdSessionId] = {};
-            return next;
-          },
-        );
+        queryClient.setQueryData(chatKeys.sessions(), (previous?: AllSessionHistoryMap) => {
+          const next = { ...previous };
+          if (!next[createdSessionId]) next[createdSessionId] = {};
+          return next;
+        });
       } catch {
         setDraftMessages((previous) => [
           ...previous,
           {
             id: (Date.now() + 1).toString(),
             role: "assistant",
-            content:
-              "I could not create a chat session. Please try again in a moment.",
+            content: "I could not create a chat session. Please try again in a moment.",
             timestamp: new Date(),
             stats: null,
             backendConnected: false,
@@ -271,12 +264,8 @@ export function ChatSidebar() {
     if (!resolvedSessionId) return;
 
     const sessionMessages =
-      queryClient.getQueryData<Message[]>(
-        chatKeys.session(resolvedSessionId),
-      ) ?? workingMessages;
-    const optimisticUserMessages = sessionMessages.some(
-      (message) => message.id === userMessage.id,
-    )
+      queryClient.getQueryData<Message[]>(chatKeys.session(resolvedSessionId)) ?? workingMessages;
+    const optimisticUserMessages = sessionMessages.some((message) => message.id === userMessage.id)
       ? sessionMessages
       : [...sessionMessages, userMessage];
     const placeholderId = `assistant-placeholder-${Date.now()}`;
@@ -290,10 +279,7 @@ export function ChatSidebar() {
       },
     ];
 
-    queryClient.setQueryData(
-      chatKeys.session(resolvedSessionId),
-      optimisticMessages,
-    );
+    queryClient.setQueryData(chatKeys.session(resolvedSessionId), optimisticMessages);
 
     const history = optimisticUserMessages.map((message) => ({
       role: message.role,
@@ -319,9 +305,7 @@ export function ChatSidebar() {
       chatKeys.session(resolvedSessionId),
       (previous: Message[] | undefined) => {
         const base = previous ?? optimisticMessages;
-        return base.map((message) =>
-          message.id === placeholderId ? assistantMessage : message,
-        );
+        return base.map((message) => (message.id === placeholderId ? assistantMessage : message));
       },
     );
 
@@ -332,9 +316,7 @@ export function ChatSidebar() {
           prompt: text,
           responseText: assistantMessage.content,
         })
-        .then(() =>
-          queryClient.invalidateQueries({ queryKey: chatKeys.sessions() }),
-        )
+        .then(() => queryClient.invalidateQueries({ queryKey: chatKeys.sessions() }))
         .catch(() => {
           // Ignore persistence failures; the response is already shown to the user.
         });
@@ -354,7 +336,6 @@ export function ChatSidebar() {
 
   return (
     <section className={classes.surgeChatShell}>
-
       <header className={classes.surgeChatHeader}>
         <div className={classes.surgeChatHeaderIcon}>
           <svg
@@ -426,9 +407,7 @@ export function ChatSidebar() {
           <MessageBubble key={message.id} message={message} />
         ))}
 
-        {showSuggestions ? (
-          <SuggestionChips onSelect={(text) => void sendMessage(text)} />
-        ) : null}
+        {showSuggestions ? <SuggestionChips onSelect={(text) => void sendMessage(text)} /> : null}
 
         {isTyping ? (
           <div className={classes.surgeChatTypingRow}>
