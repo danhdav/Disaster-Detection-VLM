@@ -5,6 +5,12 @@ import { tanstackRouter } from "@tanstack/router-plugin/rspack";
 // Docs: https://rsbuild.rs/config/
 export default defineConfig({
   plugins: [pluginReact()],
+  dev: {
+    lazyCompilation: false,
+  },
+  html: {
+    title: "Surge Visual Disaster Assessment System",
+  },
   tools: {
     rspack: {
       plugins: [

@@ -40,13 +40,17 @@ interface SceneLabels {
   post?: LabelPhase | null;
 }
 
-interface DisastersResponse {
-  disasters: DisasterSummary[];
-}
-
-interface ScenesResponse {
-  scenes: SceneSummary[];
-  recommendedSceneId?: string;
+interface FireLabelDocument {
+  metadata?: {
+    disaster?: string;
+    disaster_type?: string;
+    img_name?: string;
+    [key: string]: unknown;
+  };
+  features?: {
+    lng_lat?: LabelFeature[];
+    xy?: unknown[];
+  };
 }
 
 interface AnalyzeResponse {
@@ -93,7 +97,7 @@ function emptyFeatureCollection(): FeatureCollection {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Failed request (${response.status}): ${url}`);
   }
@@ -107,6 +111,43 @@ function chooseFeatures(labels: SceneLabels | null): LabelFeature[] {
   return labels.pre?.features.lng_lat ?? [];
 }
 
+type ScenePhase = "pre" | "post" | null;
+
+function parseSceneInfoFromImgName(
+  imgName?: string,
+): { sceneId: string; phase: ScenePhase } | null {
+  if (!imgName) return null;
+
+  const fileName = imgName.split("/").pop()?.trim();
+  if (!fileName) return null;
+
+  const match = fileName.match(/^(.*)_(pre|post)_disaster(?:\.[^.]+)?$/i);
+  if (match) {
+    return {
+      sceneId: match[1],
+      phase: match[2].toLowerCase() as "pre" | "post",
+    };
+  }
+
+  const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+  if (!withoutExtension) return null;
+
+  return { sceneId: withoutExtension, phase: null };
+}
+
+function phaseFromDoc(doc: FireLabelDocument | undefined, imageUrl?: string): LabelPhase | null {
+  if (!doc) return null;
+  return {
+    metadata: doc.metadata ?? {},
+    features: {
+      lng_lat: doc.features?.lng_lat ?? [],
+      xy: doc.features?.xy ?? [],
+    },
+    imgName: doc.metadata?.img_name,
+    imageUrl,
+  };
+}
+
 export function MapProvider({ children }: { children: React.ReactNode }) {
   const [activeDisasterId, setActiveDisasterIdState] = React.useState<string | null>(null);
   const [activeSceneId, setActiveSceneId] = React.useState<string | null>(null);
@@ -115,45 +156,130 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const [showPre, setShowPre] = React.useState(false);
   const [showPost, setShowPost] = React.useState(true);
 
-  const disastersQuery = useQuery({
-    queryKey: ["disasters"],
-    queryFn: () => fetchJson<DisastersResponse>(`${API_BASE}/disasters`),
+  const fireLabelsQuery = useQuery({
+    queryKey: ["fire"],
+    queryFn: () => fetchJson<FireLabelDocument[]>(`${API_BASE}/fire`),
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  const scenesQuery = useQuery({
-    queryKey: ["disaster-scenes", activeDisasterId],
-    enabled: Boolean(activeDisasterId),
-    queryFn: () => fetchJson<ScenesResponse>(`${API_BASE}/disasters/${activeDisasterId}/scenes`),
-  });
+  const disasters = React.useMemo<DisasterSummary[]>(() => {
+    const docs = fireLabelsQuery.data ?? [];
+    const byDisaster = new Map<
+      string,
+      {
+        disasterType?: string;
+        scenes: Map<string, { hasFeatures: boolean }>;
+      }
+    >();
+
+    for (const doc of docs) {
+      const disasterId = doc.metadata?.disaster;
+      const sceneInfo = parseSceneInfoFromImgName(doc.metadata?.img_name);
+      const sceneId = sceneInfo?.sceneId ?? null;
+      if (!disasterId || !sceneId) continue;
+
+      const existing = byDisaster.get(disasterId) ?? {
+        disasterType: doc.metadata?.disaster_type,
+        scenes: new Map<string, { hasFeatures: boolean }>(),
+      };
+      const hasFeatures = (doc.features?.lng_lat ?? []).length > 0;
+      const currentScene = existing.scenes.get(sceneId) ?? {
+        hasFeatures: false,
+      };
+      existing.scenes.set(sceneId, {
+        hasFeatures: currentScene.hasFeatures || hasFeatures,
+      });
+      byDisaster.set(disasterId, existing);
+    }
+
+    return Array.from(byDisaster.entries()).map(([id, value]) => {
+      const scenes = Array.from(value.scenes.entries());
+      const featuredSceneId = scenes.find(([, scene]) => scene.hasFeatures)?.[0];
+
+      return {
+        id,
+        disasterType: value.disasterType,
+        sceneCount: scenes.length,
+        // Prefer a scene with labels so the map can compute bounds and focus immediately.
+        recommendedSceneId: featuredSceneId ?? scenes[0]?.[0] ?? undefined,
+        recommendedBounds: null,
+      };
+    });
+  }, [fireLabelsQuery.data]);
+
+  const scenes = React.useMemo<SceneSummary[]>(() => {
+    const docs = fireLabelsQuery.data ?? [];
+    if (!activeDisasterId) return [];
+
+    const byScene = new Map<
+      string,
+      {
+        pre?: FireLabelDocument;
+        post?: FireLabelDocument;
+      }
+    >();
+
+    for (const doc of docs) {
+      if (doc.metadata?.disaster !== activeDisasterId) continue;
+      const sceneInfo = parseSceneInfoFromImgName(doc.metadata?.img_name);
+      const sceneId = sceneInfo?.sceneId ?? null;
+      if (!sceneId) continue;
+
+      const existing = byScene.get(sceneId) ?? {};
+      if (sceneInfo?.phase === "pre") {
+        existing.pre = doc;
+      } else if (sceneInfo?.phase === "post") {
+        existing.post = doc;
+      } else if (!existing.post) {
+        // If phase is unknown, keep one doc so the scene still appears.
+        existing.post = doc;
+      }
+      byScene.set(sceneId, existing);
+    }
+
+    return Array.from(byScene.entries()).map(([sceneId, pair]) => {
+      const preFeatures = pair.pre?.features?.lng_lat ?? [];
+      const postFeatures = pair.post?.features?.lng_lat ?? [];
+      const hasFeatures = preFeatures.length > 0 || postFeatures.length > 0;
+
+      let bounds: Bounds | null = null;
+      const chosen = postFeatures.length > 0 ? postFeatures : preFeatures;
+      if (chosen.length > 0) {
+        bounds = getBoundsFromFeatureCollection(labelFeaturesToGeoJson(chosen));
+      }
+
+      return {
+        sceneId,
+        hasFeatures,
+        bounds,
+        hasPre: Boolean(pair.pre),
+        hasPost: Boolean(pair.post),
+      };
+    });
+  }, [activeDisasterId, fireLabelsQuery.data]);
 
   React.useEffect(() => {
-    const scenes = scenesQuery.data?.scenes ?? [];
-    if (scenes.length === 0) {
+    const availableScenes = scenes;
+    if (availableScenes.length === 0) {
       setActiveSceneId(null);
       return;
     }
 
     const hasExisting =
-      typeof activeSceneId === "string" && scenes.some((scene) => scene.sceneId === activeSceneId);
+      typeof activeSceneId === "string" &&
+      availableScenes.some((scene) => scene.sceneId === activeSceneId);
     if (hasExisting) return;
 
     const sceneToUse =
-      scenesQuery.data?.recommendedSceneId ??
-      scenes.find((scene) => scene.hasFeatures)?.sceneId ??
-      scenes[0]?.sceneId ??
+      availableScenes.find((scene) => scene.hasFeatures)?.sceneId ??
+      availableScenes[0]?.sceneId ??
       null;
 
     setActiveSceneId(sceneToUse);
-  }, [activeSceneId, scenesQuery.data]);
-
-  const labelsQuery = useQuery({
-    queryKey: ["scene-labels", activeDisasterId, activeSceneId],
-    enabled: Boolean(activeDisasterId) && Boolean(activeSceneId),
-    queryFn: () =>
-      fetchJson<SceneLabels>(
-        `${API_BASE}/disasters/${activeDisasterId}/scenes/${activeSceneId}/labels`,
-      ),
-  });
+  }, [activeSceneId, scenes]);
 
   const {
     mutateAsync: analyzeAsync,
@@ -190,22 +316,55 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveDisaster = React.useCallback(
     async (disasterId: string) => {
-      setActiveDisasterIdState((previousDisasterId) => {
-        if (previousDisasterId === disasterId) {
-          return previousDisasterId;
-        }
-        setActiveSceneId(null);
-        setActiveFeatureId(null);
-        resetAnalysisMutation();
-        return disasterId;
-      });
+      if (activeDisasterId === disasterId) return;
+      setActiveDisasterIdState(disasterId);
+      setActiveSceneId(null);
+      setActiveFeatureId(null);
+      resetAnalysisMutation();
     },
-    [resetAnalysisMutation],
+    [activeDisasterId, resetAnalysisMutation],
   );
 
-  const disasters = disastersQuery.data?.disasters ?? [];
-  const scenes = scenesQuery.data?.scenes ?? [];
-  const sceneLabels = labelsQuery.data ?? null;
+  const sceneLabels = React.useMemo<SceneLabels | null>(() => {
+    if (!activeDisasterId || !activeSceneId) return null;
+
+    const docs = fireLabelsQuery.data ?? [];
+    const preDoc = docs.find(
+      (doc) =>
+        doc.metadata?.disaster === activeDisasterId &&
+        parseSceneInfoFromImgName(doc.metadata?.img_name)?.sceneId === activeSceneId &&
+        parseSceneInfoFromImgName(doc.metadata?.img_name)?.phase === "pre",
+    );
+    const postDoc = docs.find(
+      (doc) =>
+        doc.metadata?.disaster === activeDisasterId &&
+        parseSceneInfoFromImgName(doc.metadata?.img_name)?.sceneId === activeSceneId &&
+        parseSceneInfoFromImgName(doc.metadata?.img_name)?.phase !== "pre",
+    );
+
+    const pre = phaseFromDoc(
+      preDoc,
+      preDoc ? API_BASE + `/image/${encodeURIComponent(activeSceneId)}/pre` : undefined,
+    );
+    const post = phaseFromDoc(
+      postDoc,
+      postDoc ? API_BASE + `/image/${encodeURIComponent(activeSceneId)}/post` : undefined,
+    );
+
+    const chosen = (post?.features.lng_lat ?? []).length > 0 ? post : pre;
+    const bounds =
+      chosen && chosen.features.lng_lat.length > 0
+        ? getBoundsFromFeatureCollection(labelFeaturesToGeoJson(chosen.features.lng_lat))
+        : null;
+
+    return {
+      disasterId: activeDisasterId,
+      sceneId: activeSceneId,
+      bounds,
+      pre,
+      post,
+    };
+  }, [activeDisasterId, activeSceneId, fireLabelsQuery.data]);
 
   const geoJson = React.useMemo(() => {
     const features = chooseFeatures(sceneLabels);
@@ -235,8 +394,8 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     () => ({
       disasters,
       scenes,
-      isLoadingDisasters: disastersQuery.isLoading,
-      isLoadingScene: scenesQuery.isFetching || labelsQuery.isFetching,
+      isLoadingDisasters: fireLabelsQuery.isLoading,
+      isLoadingScene: false,
       activeDisasterId,
       activeSceneId,
       activeFeatureId,
@@ -273,9 +432,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       clearAnalysis,
     }),
     [
-      disastersQuery.isLoading,
-      scenesQuery.isFetching,
-      labelsQuery.isFetching,
+      fireLabelsQuery.isLoading,
       disasters,
       scenes,
       activeDisasterId,

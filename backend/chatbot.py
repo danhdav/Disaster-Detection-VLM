@@ -1,38 +1,41 @@
-"""FastAPI chatbot: session/history APIs and UI chat via OpenRouter (`/api/chat`)."""
+'''
+This file handles all chatbot-related API endpoints (i.e messages and session handling).
+'''
 
 from __future__ import annotations
 
 import os
 from typing import Any
-from uuid import uuid4
+from uuid import uuid4 # for generating unique session IDs
 
 import requests
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field # use for data validation error checking
 
-app = FastAPI(title="Chatbot API", version="1.0.0")
+app = APIRouter(tags=["chatbot"])
+
 
 # In-memory session storage:
 # { session_id: { user_id: [ {"prompt": ..., "response": ...}, ... ] } }
 chat_sessions: dict[str, dict[str, list[dict[str, str]]]] = {}
 
-
+# chat message model for session history
 class ChatMessageIn(BaseModel):
     user: str = Field(min_length=1, description="User identifier")
     prompt: str = Field(min_length=1)
     response: str = Field(min_length=1)
 
-
+# session history response model
 class SessionHistoryResponse(BaseModel):
     session_id: str
     history: dict[str, list[dict[str, str]]]
 
-
+# chat turn model
 class ChatTurn(BaseModel):
     role: str
     content: str
 
-
+# chatbot request model; includes the conversation history as context
 class ChatApiRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_history: list[ChatTurn] = Field(default_factory=list)
@@ -44,10 +47,13 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     model = os.getenv("OPENROUTER_CHAT_MODEL")
+    if not model:
+        raise RuntimeError("OPENROUTER_CHAT_MODEL is not set")
+    
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.4,
+        "temperature": 0.4, # adjust for response determinism
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -59,9 +65,11 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
         json=payload,
         timeout=120,
     )
+
     response.raise_for_status()
     body = response.json()
     content_value = body["choices"][0]["message"]["content"]
+
     if isinstance(content_value, str):
         return content_value
     if isinstance(content_value, list):
@@ -82,10 +90,18 @@ def index() -> dict[str, str]:
 def create_session() -> dict[str, str]:
     session_id = str(uuid4())
     chat_sessions[session_id] = {}
+    print("Session created: ", session_id)  # Debug log
     return {"session_id": session_id}
 
+# Delete all chat sessions (after site refresh or exit)
+@app.delete("/chat/sessions")
+def delete_all_sessions() -> dict[str, Any]:
+    deleted_count = len(chat_sessions)
+    chat_sessions.clear()
+    return {"message": "All chat sessions deleted", "deleted_count": deleted_count}
 
-# Delete a session and its history (run for server restarts or cleanup)
+
+# Delete a session and its history (run for specific session deletion in the sidebar)
 @app.delete("/chat/sessions/{session_id}")
 def delete_session(session_id: str) -> dict[str, str]:
     if session_id not in chat_sessions:
@@ -132,7 +148,7 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
         "unless the user provided real data."
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-    for turn in body.conversation_history:
+    for turn in body.conversation_history: # include conversation history for context
         role = turn.role.lower().strip()
         if role not in ("user", "assistant"):
             continue
@@ -144,6 +160,7 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}") from exc
     except RuntimeError as exc:
+        print(f"RuntimeError: {exc}")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return {"response": text, "message": text, "stats": None}

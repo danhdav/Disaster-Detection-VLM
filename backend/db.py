@@ -1,33 +1,53 @@
-"""FastAPI endpoints for MongoDB (labels) and S3 (imagery)."""
+"""
+This file contains API endpoints for the dataset (i.e interacting with MongoDB and AWS S3)
+To view the documentation UI, visit /docs
+"""
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
-from storage import (
+
+from dataparser import (
     S3_IMAGES_PREFIX,
     bucket_name,
     labels_collection,
     mongo_client,
-    presigned_scene_image_urls,
+    mongo_db_name,
     s3_client,
+    presigned_scene_image_urls,
     test_mongodb_connection,
     test_s3_connection,
 )
 
-'''
-This file contains API endpoints for the dataset (i.e interacting with MongoDB and AWS S3)
-To view the documentation UI, visit /docs
-'''
 
-app = FastAPI(title="Database & S3 API", version="1.0.0")
+app = APIRouter(tags=["data"])
 
 fire_labels_collection = labels_collection
+analysis_collection_name = os.getenv(
+    "MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results"
+)
+analysis_collection: Collection | None = (
+    mongo_client[mongo_db_name][analysis_collection_name]
+    if mongo_client is not None
+    else None
+)
+
+
+def _get_target_collection(collection: str) -> Collection | None:
+    if collection == "labels":
+        return fire_labels_collection
+    if collection == "analysis":
+        return analysis_collection
+    return None
 
 
 def _require_mongo():
@@ -52,6 +72,7 @@ async def get_fire_labels():
     assert fire_labels_collection is not None
     try:
         labels = list(fire_labels_collection.find())
+        print(f"Total labels retrieved: {len(labels)}")
         for label in labels:
             if "_id" in label:
                 label["_id"] = str(label["_id"])
@@ -59,7 +80,8 @@ async def get_fire_labels():
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-# Query the full image name without the .png extension
+
+# Get a fire label by its metadata.img_name field (e.g. "scene00000123_pre_disaster.png")
 @app.get("/fire/search/{img_name}")
 async def search_fire_label(img_name: str):
     _require_mongo()
@@ -77,19 +99,32 @@ async def search_fire_label(img_name: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# Add a fire label document
 @app.post("/fire")
-async def add_fire_label(data: dict[str, Any]):
+async def add_fire_label(
+    data: dict[str, Any],
+    collection: str = Query(default="labels", pattern="^(labels|analysis)$"),
+):
     _require_mongo()
-    assert fire_labels_collection is not None
+    target_collection = _get_target_collection(collection)
+    if target_collection is None:
+        raise HTTPException(
+            status_code=500, detail=f"Collection '{collection}' is not configured"
+        )
     if not data:
         raise HTTPException(status_code=400, detail="No data provided")
     try:
-        result = fire_labels_collection.insert_one(data)
-        return {"_id": str(result.inserted_id), "message": "Label added successfully"}
+        result = target_collection.insert_one(data)
+        return {
+            "_id": str(result.inserted_id),
+            "message": f"Document added successfully to '{collection}'",
+            "collection": collection,
+        }
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# Deletes a fire label; should be used to remove generated vlm analyses' ground truth labels after server restart
 @app.delete("/fire/{label_id}")
 async def delete_fire_label(label_id: str):
     _require_mongo()
@@ -109,11 +144,44 @@ async def delete_fire_label(label_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# This endpoint is not currently used
 @app.get("/image/{disaster_name}")
 async def get_image_urls(disaster_name: str):
     _require_s3()
     try:
         return presigned_scene_image_urls(disaster_name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+"""
+Gets the disaster image for a given scene and phase (pre or post)
+scene_id format follows the following example: santa-rosa-wildfire_00000257
+"""
+
+
+@app.get("/image/{scene_id}/{phase}")
+async def get_scene_image(scene_id: str, phase: str):
+    _require_s3()
+    phase_key = phase.strip().lower()
+    if phase_key not in {"pre", "post"}:
+        raise HTTPException(status_code=400, detail="Phase must be 'pre' or 'post'")
+
+    try:
+        urls = presigned_scene_image_urls(scene_id)
+        url_key = "pre_image_url" if phase_key == "pre" else "post_image_url"
+        target_url = urls.get(url_key)
+        if not target_url:
+            raise HTTPException(status_code=404, detail="Image URL not found")
+
+        return RedirectResponse(target_url)
+
+    except HTTPException:
+        raise
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:

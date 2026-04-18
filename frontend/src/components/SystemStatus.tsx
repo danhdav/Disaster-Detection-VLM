@@ -1,68 +1,58 @@
-import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "../lib/api";
+import { useMemo } from "react";
 
 interface DebugHealthResponse {
   status: "ok";
-  paths: {
-    labelsExists: boolean;
-    imagesExists: boolean;
+  mongodb?: {
+    configured?: boolean;
+    connected?: boolean;
   };
-  counts: {
-    disasters: number;
-    scenes: number;
-    scenesWithFeatures: number;
-    labelJsonFiles: number;
-    imageFiles: {
-      total: number;
-    };
+  s3?: {
+    configured?: boolean;
+    connected?: boolean;
   };
-  openRouter: {
-    hasApiKey: boolean;
-    model: string;
-  };
-  errors: string[];
+  s3ImagesPrefix?: string;
 }
 
 export function SystemStatus() {
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [health, setHealth] = React.useState<DebugHealthResponse | null>(null);
-
-  const load = React.useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/debug/health`);
+  const healthQuery = useQuery<DebugHealthResponse>({
+    queryKey: ["debug", "health"],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE}/debug/health`, {
+        cache: "no-store",
+      });
       if (!response.ok) {
         throw new Error(`Health check failed (${response.status})`);
       }
-      setHealth((await response.json()) as DebugHealthResponse);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-      setHealth(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return (await response.json()) as DebugHealthResponse;
+    },
+    refetchInterval: 15_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
 
-  React.useEffect(() => {
-    void load();
-  }, [load]);
+  const health = healthQuery.data ?? null;
+  const isLoading = healthQuery.isLoading;
+  const error = useMemo(() => {
+    if (!healthQuery.error) return null;
+    return healthQuery.error instanceof Error ? healthQuery.error.message : null;
+  }, [healthQuery.error]);
+  const lastCheckedAt = useMemo(() => {
+    if (!healthQuery.dataUpdatedAt) return null;
+    return new Date(healthQuery.dataUpdatedAt);
+  }, [healthQuery.dataUpdatedAt]);
 
   const issues: string[] = [];
-  if (health && !health.paths.labelsExists) issues.push("labels directory not found");
-  if (health && !health.paths.imagesExists) issues.push("images directory not found");
-  if (health && !health.openRouter.hasApiKey) issues.push("OPENROUTER_API_KEY missing");
-  if (health && health.counts.scenesWithFeatures === 0)
-    issues.push("no scenes with features found");
-  if (health && health.errors.length > 0)
-    issues.push(`${health.errors.length} data parsing errors`);
+  if (health && health.mongodb && health.mongodb.connected === false)
+    issues.push("MongoDB not connected");
+  if (health && health.s3 && health.s3.connected === false) issues.push("S3 not connected");
 
   return (
     <section className="status-card">
       <div className="status-head">
         <h3>System Status</h3>
-        <button className="status-refresh" onClick={() => void load()} type="button">
+        <button className="status-refresh" onClick={() => void healthQuery.refetch()} type="button">
           Refresh
         </button>
       </div>
@@ -73,29 +63,28 @@ export function SystemStatus() {
       {health ? (
         <>
           <div className="meta-grid">
-            <span>Disasters</span>
-            <span>{health.counts.disasters}</span>
-            <span>Scenes</span>
-            <span>{health.counts.scenes}</span>
-            <span>Scenes with features</span>
-            <span>{health.counts.scenesWithFeatures}</span>
-            <span>Label JSONs</span>
-            <span>{health.counts.labelJsonFiles}</span>
-            <span>Raster images</span>
-            <span>{health.counts.imageFiles.total}</span>
-            <span>OpenRouter model</span>
-            <span>{health.openRouter.model}</span>
+            <span>MongoDB configured</span>
+            <span>{health.mongodb?.configured ? "yes" : "no"}</span>
+            <span>MongoDB connected</span>
+            <span>{health.mongodb?.connected ? "yes" : "no"}</span>
+            <span>S3 configured</span>
+            <span>{health.s3?.configured ? "yes" : "no"}</span>
+            <span>S3 connected</span>
+            <span>{health.s3?.connected ? "yes" : "no"}</span>
+            <span>S3 prefix</span>
+            <span>{health.s3ImagesPrefix ?? "-"}</span>
+            <span>Last checked</span>
+            <span>{lastCheckedAt ? lastCheckedAt.toLocaleTimeString() : "-"}</span>
           </div>
 
           <div className="chip-row">
-            <span className={`chip ${health.paths.labelsExists ? "chip-ok" : "chip-bad"}`}>
-              labels {health.paths.labelsExists ? "ok" : "missing"}
+            <span
+              className={`chip ${health.mongodb?.connected === false ? "chip-bad" : "chip-ok"}`}
+            >
+              mongodb {health.mongodb?.connected === false ? "down" : "ok"}
             </span>
-            <span className={`chip ${health.paths.imagesExists ? "chip-ok" : "chip-bad"}`}>
-              images {health.paths.imagesExists ? "ok" : "missing"}
-            </span>
-            <span className={`chip ${health.openRouter.hasApiKey ? "chip-ok" : "chip-bad"}`}>
-              key {health.openRouter.hasApiKey ? "present" : "missing"}
+            <span className={`chip ${health.s3?.connected === false ? "chip-bad" : "chip-ok"}`}>
+              s3 {health.s3?.connected === false ? "down" : "ok"}
             </span>
           </div>
 

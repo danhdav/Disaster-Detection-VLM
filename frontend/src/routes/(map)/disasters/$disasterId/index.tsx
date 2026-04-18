@@ -10,8 +10,15 @@ export const Route = createFileRoute("/(map)/disasters/$disasterId/")({
 
 function DisasterRegionPanel() {
   const { disasterId } = Route.useParams();
-  const { setActiveDisaster, sceneLabels, geoJson, isLoadingScene, layerMode, setLayerMode } =
-    useMapContext();
+  const {
+    setActiveDisaster,
+    setActiveFeature,
+    sceneLabels,
+    geoJson,
+    isLoadingScene,
+    layerMode,
+    setLayerMode,
+  } = useMapContext();
 
   React.useEffect(() => {
     void setActiveDisaster(disasterId);
@@ -88,6 +95,9 @@ function DisasterRegionPanel() {
                 key={uid}
                 params={{ disasterId, featureId: uid }}
                 to="/disasters/$disasterId/features/$featureId"
+                onClick={() => {
+                  setActiveFeature(uid);
+                }}
               >
                 <strong className="mono">{uid}</strong>
                 <div>{subtype}</div>

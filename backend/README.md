@@ -10,8 +10,23 @@ Uv contains a configuration file to load in the required libraries. Sync the lib
 Finally, source your .venv:
 `source .venv/bin/activate` or `.venv\bin\activate` if you are using Windows
 
-Run the flask server:
+Run the backend with Uvicorn (development with reload):
+`uv run uvicorn server:app --host 0.0.0.0 --port 8000 --reload`
+
+Run the backend with production-oriented Uvicorn settings:
 `uv run python server.py`
+
+`server.py` uses these optional environment variables for production serving:
+- `HOST` (default: `0.0.0.0`)
+- `PORT` (default: `8000`)
+- `UVICORN_WORKERS` (default: `2`)
+- `UVICORN_LOG_LEVEL` (default: `info`)
+- `UVICORN_ACCESS_LOG` (default: `true`)
+- `UVICORN_TIMEOUT_KEEP_ALIVE` (default: `5`)
+- `UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN` (default: `30`)
+
+Example production run:
+`HOST=0.0.0.0 PORT=8000 UVICORN_WORKERS=4 UVICORN_LOG_LEVEL=info uv run python server.py`
 
 # AWS
 
@@ -25,11 +40,7 @@ NOTE: these keys are not hardcoded as environmental variables nor in the program
 
 # Environmental Variables
 
-An example.env is given and should be the outline for what values to include in your local development setup.
-
-As far as deployment, a "prod" environment has been created on GitHub (see Settings -> Environments). This environment will be used to push workflows that are production-ready.
-Github Secrets will be used to replace the .env file convention for local development. Each environmental variable will instead be assigned via the repository secrets section (see Settings -> GitHub Secrets).
-Note that any environment-specific secrets will take precedence over repository secrets. For now, I have assigned the environmental variables as repository secrets.
+An example.env is given and should be the outline for what values to include in your local development setup. Railway will handle backend environmental variables during deployment.
 
 # Database
 
