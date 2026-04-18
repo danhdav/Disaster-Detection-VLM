@@ -8,6 +8,9 @@ export default defineConfig({
   dev: {
     lazyCompilation: false,
   },
+  html: {
+    title: 'Surge Visual Disaster Assessment System',
+  },
   tools: {
     rspack: {
       plugins: [
