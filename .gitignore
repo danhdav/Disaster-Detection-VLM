@@ -1,8 +1,11 @@
 backend/__pycache__
+backend/**/__pycache__
 backend/.venv
 backend/.python-version
 
 backend/.env
+
+backend/cnn/weights/
 
 frontend/node_modules
 frontend/.tanstack
