@@ -1,4 +1,4 @@
-from server import app
+from main import app
 import os
 import uvicorn
 

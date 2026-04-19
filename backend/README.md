@@ -11,12 +11,12 @@ Finally, source your .venv:
 `source .venv/bin/activate` or `.venv\bin\activate` if you are using Windows
 
 Run the backend with Uvicorn (development with reload):
-`uv run uvicorn server:app --host 0.0.0.0 --port 8000 --reload`
+`uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
 
 Run the backend with production-oriented Uvicorn settings:
-`uv run python server.py`
+`uv run python run.py`
 
-`server.py` uses these optional environment variables for production serving:
+`run.py` uses these optional environment variables for production serving:
 - `HOST` (default: `0.0.0.0`)
 - `PORT` (default: `8000`)
 - `UVICORN_WORKERS` (default: `2`)
@@ -26,7 +26,7 @@ Run the backend with production-oriented Uvicorn settings:
 - `UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN` (default: `30`)
 
 Example production run:
-`HOST=0.0.0.0 PORT=8000 UVICORN_WORKERS=4 UVICORN_LOG_LEVEL=info uv run python server.py`
+`HOST=0.0.0.0 PORT=8000 UVICORN_WORKERS=4 UVICORN_LOG_LEVEL=info uv run python run.py`
 
 # AWS
 
