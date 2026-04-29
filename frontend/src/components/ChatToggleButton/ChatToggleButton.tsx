@@ -1,22 +1,10 @@
 import { useState, useMemo } from "react";
 import classes from "./ChatToggleButton.module.css";
 import { ChatSidebar } from "../ChatSidebar/ChatSidebar";
-import { useChatSessionsQuery } from "../../hooks/useChatQueries";
 
 
 export function ChatToggleButton() {
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const sessionsQuery = useChatSessionsQuery();
-
-  const sessions = useMemo(() => {
-    const allHistory = sessionsQuery.data ?? {};
-    return Object.keys(allHistory).map((id, index) => ({
-      id,
-      createdAt: new Date(Date.now() - index * 1000),
-    }));
-  }, [sessionsQuery.data]);
-
-  const mostRecentSessionId = sessions.length > 0 ? sessions[0].id : null;
 
   return (
     <>
@@ -74,7 +62,7 @@ export function ChatToggleButton() {
       </button>
 
       <div className={`${classes.chatPanel} ${isChatOpen ? classes.chatPanelOpen : classes.chatPanelClosed}`}>
-        <ChatSidebar initialSessionId={mostRecentSessionId} />
+        <ChatSidebar  />
       </div>
     </>
   );

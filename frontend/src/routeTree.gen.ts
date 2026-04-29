@@ -10,43 +10,83 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ChatRouteImport } from './routes/chat'
-import { Route as baseIndexRouteImport } from './routes/(base)/index'
+import { Route as mapRouteRouteImport } from './routes/(map)/route'
+import { Route as mapIndexRouteImport } from './routes/(map)/index'
+import { Route as mapDisastersDisasterIdIndexRouteImport } from './routes/(map)/disasters/$disasterId/index'
+import { Route as mapDisastersDisasterIdFeaturesFeatureIdRouteImport } from './routes/(map)/disasters/$disasterId/features/$featureId'
 
 const ChatRoute = ChatRouteImport.update({
   id: '/chat',
   path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const baseIndexRoute = baseIndexRouteImport.update({
-  id: '/(base)/',
-  path: '/',
+const mapRouteRoute = mapRouteRouteImport.update({
+  id: '/(map)',
   getParentRoute: () => rootRouteImport,
 } as any)
+const mapIndexRoute = mapIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => mapRouteRoute,
+} as any)
+const mapDisastersDisasterIdIndexRoute =
+  mapDisastersDisasterIdIndexRouteImport.update({
+    id: '/disasters/$disasterId/',
+    path: '/disasters/$disasterId/',
+    getParentRoute: () => mapRouteRoute,
+  } as any)
+const mapDisastersDisasterIdFeaturesFeatureIdRoute =
+  mapDisastersDisasterIdFeaturesFeatureIdRouteImport.update({
+    id: '/disasters/$disasterId/features/$featureId',
+    path: '/disasters/$disasterId/features/$featureId',
+    getParentRoute: () => mapRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/chat': typeof ChatRoute
-  '/': typeof baseIndexRoute
+  '/': typeof mapIndexRoute
+  '/disasters/$disasterId/': typeof mapDisastersDisasterIdIndexRoute
+  '/disasters/$disasterId/features/$featureId': typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
 }
 export interface FileRoutesByTo {
   '/chat': typeof ChatRoute
-  '/': typeof baseIndexRoute
+  '/': typeof mapIndexRoute
+  '/disasters/$disasterId': typeof mapDisastersDisasterIdIndexRoute
+  '/disasters/$disasterId/features/$featureId': typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/(map)': typeof mapRouteRouteWithChildren
   '/chat': typeof ChatRoute
-  '/(base)/': typeof baseIndexRoute
+  '/(map)/': typeof mapIndexRoute
+  '/(map)/disasters/$disasterId/': typeof mapDisastersDisasterIdIndexRoute
+  '/(map)/disasters/$disasterId/features/$featureId': typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/chat' | '/'
+  fullPaths:
+    | '/chat'
+    | '/'
+    | '/disasters/$disasterId/'
+    | '/disasters/$disasterId/features/$featureId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/chat' | '/'
-  id: '__root__' | '/chat' | '/(base)/'
+  to:
+    | '/chat'
+    | '/'
+    | '/disasters/$disasterId'
+    | '/disasters/$disasterId/features/$featureId'
+  id:
+    | '__root__'
+    | '/(map)'
+    | '/chat'
+    | '/(map)/'
+    | '/(map)/disasters/$disasterId/'
+    | '/(map)/disasters/$disasterId/features/$featureId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  mapRouteRoute: typeof mapRouteRouteWithChildren
   ChatRoute: typeof ChatRoute
-  baseIndexRoute: typeof baseIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,19 +98,57 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(base)/': {
-      id: '/(base)/'
+    '/(map)': {
+      id: '/(map)'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof mapRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(map)/': {
+      id: '/(map)/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof baseIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof mapIndexRouteImport
+      parentRoute: typeof mapRouteRoute
+    }
+    '/(map)/disasters/$disasterId/': {
+      id: '/(map)/disasters/$disasterId/'
+      path: '/disasters/$disasterId'
+      fullPath: '/disasters/$disasterId/'
+      preLoaderRoute: typeof mapDisastersDisasterIdIndexRouteImport
+      parentRoute: typeof mapRouteRoute
+    }
+    '/(map)/disasters/$disasterId/features/$featureId': {
+      id: '/(map)/disasters/$disasterId/features/$featureId'
+      path: '/disasters/$disasterId/features/$featureId'
+      fullPath: '/disasters/$disasterId/features/$featureId'
+      preLoaderRoute: typeof mapDisastersDisasterIdFeaturesFeatureIdRouteImport
+      parentRoute: typeof mapRouteRoute
     }
   }
 }
 
+interface mapRouteRouteChildren {
+  mapIndexRoute: typeof mapIndexRoute
+  mapDisastersDisasterIdIndexRoute: typeof mapDisastersDisasterIdIndexRoute
+  mapDisastersDisasterIdFeaturesFeatureIdRoute: typeof mapDisastersDisasterIdFeaturesFeatureIdRoute
+}
+
+const mapRouteRouteChildren: mapRouteRouteChildren = {
+  mapIndexRoute: mapIndexRoute,
+  mapDisastersDisasterIdIndexRoute: mapDisastersDisasterIdIndexRoute,
+  mapDisastersDisasterIdFeaturesFeatureIdRoute:
+    mapDisastersDisasterIdFeaturesFeatureIdRoute,
+}
+
+const mapRouteRouteWithChildren = mapRouteRoute._addFileChildren(
+  mapRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
+  mapRouteRoute: mapRouteRouteWithChildren,
   ChatRoute: ChatRoute,
-  baseIndexRoute: baseIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
