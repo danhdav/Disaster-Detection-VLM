@@ -1,0 +1,104 @@
+.chatToggleBtn {
+  position: fixed;
+  bottom: 50px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #3b82f6;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  z-index: 999;
+}
+
+.chatToggleBtn:hover {
+  background-color: #2563eb;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  transform: scale(1.05);
+}
+
+.chatToggleBtn:active {
+  transform: scale(0.95);
+}
+
+
+.chatPanel {
+  position: fixed;
+  top: 10px;
+  right: 50px;
+  width: min(400px, calc(100vw - 80px));
+  height: calc(100vh - 200px);
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.392);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.4);
+  display: flex;
+  flex-direction: column;
+  z-index: 998;
+  transition: transform 0.3s ease;
+}
+
+.chatPanelOpen {
+  transform: translateX(0);
+}
+
+.chatPanelClosed {
+  transform: translateX(150%);
+}
+
+.chatCloseBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  color: #6b7280;
+  transition: color 0.2s ease;
+  z-index: 10;
+}
+
+.chatCloseBtn:hover {
+  color: #1f2937;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .chatPanel {
+    width: 100vw;
+  }
+
+  .chatToggleBtn {
+    bottom: 16px;
+    right: 16px;
+  }
+}
