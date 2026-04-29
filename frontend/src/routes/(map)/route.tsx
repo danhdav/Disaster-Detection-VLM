@@ -1,7 +1,6 @@
 import { CatchBoundary, Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
-import { ChatSidebar } from "../../components/ChatSidebar/ChatSidebar";
 import { ChatToggleButton } from "../../components/ChatToggleButton/ChatToggleButton";
 import { SystemStatus } from "../../components/SystemStatus";
 import { MapProvider, useMapContext } from "../../context/MapContext";

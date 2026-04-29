@@ -1,7 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import classes from "./ChatToggleButton.module.css";
 import { ChatSidebar } from "../ChatSidebar/ChatSidebar";
-
 
 export function ChatToggleButton() {
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -61,8 +60,10 @@ export function ChatToggleButton() {
         )}
       </button>
 
-      <div className={`${classes.chatPanel} ${isChatOpen ? classes.chatPanelOpen : classes.chatPanelClosed}`}>
-        <ChatSidebar  />
+      <div
+        className={`${classes.chatPanel} ${isChatOpen ? classes.chatPanelOpen : classes.chatPanelClosed}`}
+      >
+        <ChatSidebar />
       </div>
     </>
   );

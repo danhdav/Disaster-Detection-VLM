@@ -94,7 +94,6 @@ function MessageBubble({ message }: { message: Message }) {
     <div
       className={`${classes.surgeChatMessageRow} ${isUser ? classes.isUser : classes.isAssistant}`}
     >
-
       <div className={classes.surgeChatBubbleWrapper}>
         <div
           className={`${classes.surgeChatBubble} ${isUser ? classes.isUser : classes.isAssistant}`}
