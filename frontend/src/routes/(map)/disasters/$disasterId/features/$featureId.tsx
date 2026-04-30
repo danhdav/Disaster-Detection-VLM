@@ -64,7 +64,6 @@ function flattenAnalysisValue(value: unknown, path = ""): string[] {
   return [path ? `${path}: ${stringValue}` : stringValue];
 }
 
-
 function FeatureDetailPanel() {
   const { disasterId, featureId } = Route.useParams();
   const {
