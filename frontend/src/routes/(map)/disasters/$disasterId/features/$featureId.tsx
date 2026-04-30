@@ -2,7 +2,7 @@ import * as React from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import type { Feature } from "geojson";
 
-import { useMapContext } from "../../../../../context/MapContext";
+import { useMapContext, type AnalysisResult } from "../../../../../context/MapContext";
 
 export const Route = createFileRoute("/(map)/disasters/$disasterId/features/$featureId")({
   component: FeatureDetailPanel,
@@ -15,53 +15,61 @@ function resolveImageSrc(src: string): string {
   return src.startsWith("/") ? src : `/${src}`;
 }
 
-// Fix raw blob output
-function flattenAnalysisValue(value: unknown, path = ""): string[] {
-  if (value === null || value === undefined) {
-    return [path ? `${path}: null` : "null"];
-  }
+const DAMAGE_LABELS: Record<string, string> = {
+  "no-damage": "No Damage",
+  "minor-damage": "Minor Damage",
+  "major-damage": "Major Damage",
+  destroyed: "Destroyed",
+};
 
-  const stringValue = JSON.stringify(value);
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return [path ? `${path}: ${stringValue}` : stringValue];
-  }
+const DAMAGE_COLORS: Record<string, string> = {
+  "no-damage": "#22c55e",
+  "minor-damage": "#f59e0b",
+  "major-damage": "#f97316",
+  destroyed: "#ef4444",
+};
 
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return [path ? `${path}: []` : "[]"];
-    }
+function DamageResultCard({ result }: { result: AnalysisResult }) {
+  const level = result.damageLevel ?? "unknown";
+  const label = DAMAGE_LABELS[level] ?? level;
+  const color = DAMAGE_COLORS[level] ?? "#6b7280";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "12px" }}>
+      <div
+        style={{
+          padding: "10px 14px",
+          borderRadius: "8px",
+          backgroundColor: `${color}22`,
+          border: `2px solid ${color}`,
+        }}
+      >
+        <span style={{ fontWeight: 700, fontSize: "1.05rem", color }}>{label}</span>
+      </div>
 
-    const lines: string[] = [];
-    if (path) {
-      lines.push(`${path}:`);
-    }
-
-    value.forEach((item, index) => {
-      lines.push(...flattenAnalysisValue(item, path ? `${path}[${index}]` : `[${index}]`));
-    });
-
-    return lines;
-  }
-
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) {
-      return [path ? `${path}: {}` : "{}"];
-    }
-
-    const lines: string[] = [];
-    if (path) {
-      lines.push(`${path}:`);
-    }
-
-    for (const [key, nestedValue] of entries) {
-      lines.push(...flattenAnalysisValue(nestedValue, path ? `${path}.${key}` : key));
-    }
-
-    return lines;
-  }
-
-  return [path ? `${path}: ${stringValue}` : stringValue];
+      {result.keyEvidence && result.keyEvidence.length > 0 && (
+        <div>
+          <div style={{ fontWeight: 600, fontSize: "0.8rem", marginBottom: "6px", opacity: 0.7 }}>
+            KEY EVIDENCE
+          </div>
+          <ul
+            style={{
+              margin: 0,
+              paddingLeft: "18px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+            }}
+          >
+            {result.keyEvidence.map((e, i) => (
+              <li key={i} style={{ fontSize: "0.875rem", lineHeight: 1.5 }}>
+                {e}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FeatureDetailPanel() {
@@ -91,7 +99,6 @@ function FeatureDetailPanel() {
 
   const preImageSrc = sceneLabels?.pre?.imageUrl ?? null;
   const postImageSrc = sceneLabels?.post?.imageUrl ?? null;
-  const analysisLines = analysisResult ? flattenAnalysisValue(analysisResult) : [];
 
   return (
     <>
@@ -143,19 +150,15 @@ function FeatureDetailPanel() {
         onClick={() => void runAnalysis()}
         type="button"
       >
-        {isAnalyzing ? "Running analysis..." : "Run VLM analysis"}
+        {isAnalyzing ? "Running VLM analysis..." : "Run VLM analysis"}
       </button>
 
       {analysisError ? (
         <div className="result-block">Error: {analysisError}</div>
-      ) : analysisLines.length > 0 ? (
-        <div className="result-block">
-          {analysisLines.map((line, index) => (
-            <div key={`${index}-${line}`}>{line}</div>
-          ))}
-        </div>
+      ) : analysisResult ? (
+        <DamageResultCard result={analysisResult} />
       ) : (
-        <p>Run analysis to request a structure-level assessment from the VLM.</p>
+        <p>Run VLM analysis to request a structure-level assessment from the language model.</p>
       )}
     </>
   );
