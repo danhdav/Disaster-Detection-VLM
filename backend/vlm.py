@@ -63,8 +63,8 @@ def _crop_building_b64(
     wkt: str,
     canvas_w: int = 1024,
     canvas_h: int = 1024,
-    pad_fraction: float = 0.5,
-    min_pad: int = 32,
+    pad_fraction: float = 0.25,
+    min_pad: int = 16,
 ) -> str | None:
     """
     Crop a building from a full-tile numpy image, draw a red polygon outline
