@@ -64,27 +64,6 @@ function flattenAnalysisValue(value: unknown, path = ""): string[] {
   return [path ? `${path}: ${stringValue}` : stringValue];
 }
 
-function formatAnalysisResult(raw: string): string[] {
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidates = fencedMatch ? [fencedMatch[1].trim(), trimmed] : [trimmed];
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      return flattenAnalysisValue(parsed);
-    } catch {
-      continue;
-    }
-  }
-
-  return trimmed
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
 
 function FeatureDetailPanel() {
   const { disasterId, featureId } = Route.useParams();
