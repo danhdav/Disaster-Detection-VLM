@@ -6,14 +6,18 @@ The response will include the VLM's analysis text, the model used, and metadata 
 
 from __future__ import annotations
 
+import base64
+import io as _io
 import json
 import os
 from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
 import requests
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from PIL import Image as PILImage, ImageDraw
 from pydantic import BaseModel, Field
 
 from dataparser import (
@@ -22,17 +26,91 @@ from dataparser import (
     extract_label_data,
     presigned_scene_image_urls,
 )
+from disaster_bench.models.damage.vlm_prompts import (
+    SYSTEM_PROMPT,
+    ungrounded_prompt,
+    parse_vlm_response,
+)
 
 app = APIRouter(tags=["vlm"])
 
-# Prompt background information for the VLM
-_PROMPT_PREFIX = (
-    "You are a weather analyst specializing in disaster damage assessment. Based on the provided before and after satellite imagery, provide the following eight pieces of information:\n"
-    "1) A damage classification.\n"
-    "2) A confidence score (0-100).\n"
-    "3) A very brief justification (less than a paragraph) based on key visual indicators.\n"
-    "4) An immediate response recommendation based on the observed damage.\n"
-)
+
+# ---------------------------------------------------------------------------
+# Building crop helpers — produce base64 data-URL crops with red outline
+# so the VLM receives exactly what the benchmark pipeline produces.
+# ---------------------------------------------------------------------------
+
+def _download_arr(url: str) -> np.ndarray:
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    img = PILImage.open(_io.BytesIO(resp.content)).convert("RGB")
+    return np.array(img)
+
+
+def _find_xy_wkt(pre_doc: dict | None, post_doc: dict | None, feature_id: str) -> str | None:
+    """Find the pixel-space WKT for a feature from the xy feature list."""
+    for doc in (post_doc, pre_doc):
+        if not doc:
+            continue
+        for feat in doc.get("features", {}).get("xy", []):
+            if feat.get("properties", {}).get("uid") == feature_id:
+                return feat.get("wkt")
+    return None
+
+
+def _crop_building_b64(
+    img_arr: np.ndarray,
+    wkt: str,
+    canvas_w: int = 1024,
+    canvas_h: int = 1024,
+    pad_fraction: float = 0.5,
+    min_pad: int = 32,
+) -> str | None:
+    """
+    Crop a building from a full-tile numpy image, draw a red polygon outline
+    around the building footprint, and return a base64 PNG data URL.
+    Returns None on any error so callers can fall back gracefully.
+    """
+    from disaster_bench.data.polygons import parse_wkt_polygon
+
+    img_h, img_w = img_arr.shape[:2]
+    sx = img_w / canvas_w
+    sy = img_h / canvas_h
+
+    try:
+        poly = parse_wkt_polygon(wkt)
+        if poly is None:
+            return None
+        coords_px = [(c[0] * sx, c[1] * sy) for c in poly.exterior.coords]
+        xs = [c[0] for c in coords_px]
+        ys = [c[1] for c in coords_px]
+        x1, y1 = max(0, int(min(xs))), max(0, int(min(ys)))
+        x2, y2 = min(img_w, int(max(xs))), min(img_h, int(max(ys)))
+    except Exception:
+        return None
+
+    bbox_w, bbox_h = x2 - x1, y2 - y1
+    if bbox_w <= 0 or bbox_h <= 0:
+        return None
+
+    pad = max(int(pad_fraction * max(bbox_w, bbox_h)), min_pad)
+    cx1 = max(0, x1 - pad)
+    cy1 = max(0, y1 - pad)
+    cx2 = min(img_w, x2 + pad)
+    cy2 = min(img_h, y2 + pad)
+
+    crop_img = PILImage.fromarray(img_arr[cy1:cy2, cx1:cx2].astype(np.uint8))
+
+    # Draw the building polygon outline in red
+    draw = ImageDraw.Draw(crop_img)
+    outline_coords = [(x - cx1, y - cy1) for x, y in coords_px]
+    draw.polygon(outline_coords, outline=(255, 0, 0))
+    draw.polygon(outline_coords, outline=(255, 80, 80))  # second pass for visibility
+
+    buf = _io.BytesIO()
+    crop_img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/png;base64,{b64}"
 
 
 def _error_response(status_code: int, error: str) -> JSONResponse:
@@ -77,24 +155,19 @@ def openrouter_analysis(
     disaster_id: str,
     scene_id: str,
     model_name: str,
+    full_tile: bool = False,
 ) -> str:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    feature_properties = (feature or {}).get("properties", {})
-    feature_wkt = (feature or {}).get("wkt")
-
-    # Add the requested output format to the prompt
-    prompt = (
-        _PROMPT_PREFIX
-        + f"Disaster: {disaster_id}\n"
-        + f"Scene: {scene_id}\n"
-        + f"Feature metadata: {json.dumps(feature_properties)}\n"
-        + f"Feature geometry (WKT): {feature_wkt}\n"
+    # User message: benchmark structured prompt + context metadata + images
+    user_prompt = (
+        ungrounded_prompt(full_tile=full_tile)
+        + f"\nDisaster: {disaster_id} | Scene: {scene_id}\n"
     )
 
-    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
 
     # Append pre/post image content blocks to the prompt.
     _append_image_content(content, "Pre-disaster", pre_data_url)
@@ -102,8 +175,12 @@ def openrouter_analysis(
 
     payload = {
         "model": model_name,
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": content},
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
     }
 
     # print the raw prompt content on the backend for debugging
@@ -133,15 +210,13 @@ def openrouter_analysis(
     # Openrouter has a big response schema, so this parses the content only
     # If the content is an entire string, return, otherwise extract the text parts and concatenate them
     content_value = body["choices"][0]["message"]["content"]
-    if isinstance(content_value, str):
-        return content_value
     if isinstance(content_value, list):
         parts: list[str] = []
         for item in content_value:
             if isinstance(item, dict) and item.get("type") == "text":
                 parts.append(item.get("text", ""))
         return "\n".join(parts).strip()
-    return str(body)
+    return str(content_value) if not isinstance(content_value, str) else content_value
 
 
 class AnalyzeRequest(BaseModel):
@@ -244,6 +319,34 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
     if feature is None and feature_id:
         feature = find_feature_by_uid(pre_phase, post_phase, feature_id)
 
+    # Crop the specific building and draw a red polygon outline so the VLM
+    # receives the same zoomed-in annotated view the benchmark pipeline uses.
+    # The xy features carry pixel-space WKT; lng_lat features carry geographic
+    # coords and cannot be used for pixel cropping.
+    crop_succeeded = False
+    if feature_id and pre_data_url and post_data_url:
+        xy_wkt = _find_xy_wkt(pre_doc, post_doc, feature_id)
+        if xy_wkt:
+            try:
+                meta     = (pre_doc or post_doc or {}).get("metadata", {})
+                canvas_w = int(meta.get("width",  1024))
+                canvas_h = int(meta.get("height", 1024))
+                pre_arr  = _download_arr(pre_data_url)
+                post_arr = _download_arr(post_data_url)
+                pre_b64  = _crop_building_b64(pre_arr,  xy_wkt, canvas_w, canvas_h)
+                post_b64 = _crop_building_b64(post_arr, xy_wkt, canvas_w, canvas_h)
+                if pre_b64 and post_b64:
+                    pre_data_url  = pre_b64
+                    post_data_url = post_b64
+                    crop_succeeded = True
+                    print("VLM: sending building crops with red outline.")
+                else:
+                    print("VLM: crop produced None — falling back to full tile.")
+            except Exception as exc:
+                print(f"VLM crop failed (full tile fallback): {exc}")
+        else:
+            print("VLM: no xy WKT found — sending full tile images.")
+
     try:
         analysis_text = openrouter_analysis(
             feature=feature,
@@ -252,6 +355,7 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             disaster_id=disaster_id,
             scene_id=scene_id,
             model_name=model_name,
+            full_tile=not crop_succeeded,
         )
     except requests.RequestException as exc:
         return _error_response(
@@ -279,10 +383,29 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             status_code=500, error=f"Persisting analysis via /fire failed: {exc}"
         )
 
+    parsed = parse_vlm_response(analysis_text)
+
+    # If parse_vlm_response fell back to its error dict, "raw_response" is present.
+    # Return a 502 so the caller knows the VLM output was unparseable.
+    if "raw_response" in parsed:
+        return _error_response(
+            status_code=502,
+            error=(
+                f"VLM returned non-JSON output (parse error: {parsed.get('parse_error')}). "
+                f"Raw response: {parsed.get('raw_response')}"
+            ),
+        )
+
+    # Build a clean, human-readable evidence list (split CSV string back to list)
+    raw_evidence = parsed.get("key_evidence", "") or ""
+    evidence_list = [e.strip() for e in raw_evidence.split(";") if e.strip()]
+
     return {
         "status": "ok",
         "result": {
-            "text": analysis_text,
+            "damageLevel": parsed.get("damage_level"),
+            "confidence": parsed.get("confidence"),
+            "keyEvidence": evidence_list,
             "model": model_name,
             "sceneId": scene_id,
             "disasterId": disaster_id,
@@ -291,5 +414,7 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             "hasPostImage": bool(post_data_url),
             "dataSource": "mongodb+s3",
             "analysisDocumentId": analysis_document_id,
+            "rawResponse": analysis_text,
+            "parseError": parsed.get("parse_error", ""),
         },
     }

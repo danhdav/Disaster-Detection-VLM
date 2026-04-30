@@ -53,12 +53,33 @@ interface FireLabelDocument {
   };
 }
 
+export interface AnalysisResult {
+  damageLevel: string;
+  confidence: string;
+  keyEvidence: string[];
+  model?: string;
+  sceneId?: string;
+  featureId?: string | null;
+}
+
+export interface CnnAnalysisResult {
+  damageLevel: string;
+  confidence: string;
+  probabilities: Record<string, number>;
+  model?: string;
+  sceneId?: string;
+  featureId?: string | null;
+}
+
 interface AnalyzeResponse {
   status: "ok" | "error";
-  result?: {
-    text: string;
-    model?: string;
-  };
+  result?: AnalysisResult;
+  error?: string;
+}
+
+interface CnnAnalyzeResponse {
+  status: "ok" | "error";
+  result?: CnnAnalysisResult;
   error?: string;
 }
 
@@ -76,15 +97,20 @@ interface MapContextValue {
   showPre: boolean;
   showPost: boolean;
   layerMode: "pre" | "post" | "both";
-  analysisResult: string | null;
+  analysisResult: AnalysisResult | null;
   isAnalyzing: boolean;
   analysisError: string | null;
+  cnnResult: CnnAnalysisResult | null;
+  isCnnAnalyzing: boolean;
+  cnnError: string | null;
   setActiveDisaster: (disasterId: string) => Promise<void>;
   setActiveFeature: (featureId: string | null) => void;
   setLayerVisibility: (next: { showPre?: boolean; showPost?: boolean }) => void;
   setLayerMode: (mode: "pre" | "post" | "both") => void;
   runAnalysis: () => Promise<void>;
   clearAnalysis: () => void;
+  runCnnAnalysis: () => Promise<void>;
+  clearCnnAnalysis: () => void;
 }
 
 const MapContext = React.createContext<MapContextValue | null>(null);
@@ -310,7 +336,45 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
         throw new Error(body.error ?? `Analysis failed (${response.status})`);
       }
 
-      return body.result?.text ?? "No result text returned.";
+      const r = body.result;
+      if (!r) throw new Error("No result returned from analysis.");
+      return r;
+    },
+  });
+
+  const {
+    mutateAsync: cnnAnalyzeAsync,
+    reset: resetCnnMutation,
+    data: cnnMutationData,
+    isPending: isCnnAnalyzing,
+    error: cnnMutationError,
+  } = useMutation({
+    mutationFn: async () => {
+      if (!activeDisasterId || !activeSceneId) {
+        throw new Error("Please select a disaster and scene first.");
+      }
+      if (!activeFeatureId) {
+        throw new Error("Please select a building to run CNN analysis.");
+      }
+
+      const response = await fetch(`${API_BASE}/cnn-analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          disasterId: activeDisasterId,
+          sceneId: activeSceneId,
+          featureId: activeFeatureId,
+        }),
+      });
+
+      const body = (await response.json()) as CnnAnalyzeResponse;
+      if (!response.ok || body.status !== "ok") {
+        throw new Error(body.error ?? `CNN analysis failed (${response.status})`);
+      }
+
+      const r = body.result;
+      if (!r) throw new Error("No result returned from CNN analysis.");
+      return r;
     },
   });
 
@@ -321,8 +385,9 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       setActiveSceneId(null);
       setActiveFeatureId(null);
       resetAnalysisMutation();
+      resetCnnMutation();
     },
-    [activeDisasterId, resetAnalysisMutation],
+    [activeDisasterId, resetAnalysisMutation, resetCnnMutation],
   );
 
   const sceneLabels = React.useMemo<SceneLabels | null>(() => {
@@ -387,8 +452,27 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     resetAnalysisMutation();
   }, [resetAnalysisMutation]);
 
+  const runCnnAnalysis = React.useCallback(async () => {
+    await cnnAnalyzeAsync();
+  }, [cnnAnalyzeAsync]);
+
+  const clearCnnAnalysis = React.useCallback(() => {
+    resetCnnMutation();
+  }, [resetCnnMutation]);
+
+  const setActiveFeature = React.useCallback(
+    (featureId: string | null) => {
+      setActiveFeatureId(featureId);
+      resetAnalysisMutation();
+    },
+    [resetAnalysisMutation],
+  );
+
   const analysisError =
     analysisMutationError instanceof Error ? analysisMutationError.message : null;
+
+  const cnnError =
+    cnnMutationError instanceof Error ? cnnMutationError.message : null;
 
   const value = React.useMemo<MapContextValue>(
     () => ({
@@ -408,8 +492,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       analysisResult: analysisMutationData ?? null,
       isAnalyzing,
       analysisError,
+      cnnResult: cnnMutationData ?? null,
+      isCnnAnalyzing,
+      cnnError,
       setActiveDisaster,
-      setActiveFeature: setActiveFeatureId,
+      setActiveFeature,
       setLayerVisibility: (next) => {
         if (typeof next.showPre === "boolean") setShowPre(next.showPre);
         if (typeof next.showPost === "boolean") setShowPost(next.showPost);
@@ -430,6 +517,8 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       },
       runAnalysis,
       clearAnalysis,
+      runCnnAnalysis,
+      clearCnnAnalysis,
     }),
     [
       fireLabelsQuery.isLoading,
@@ -446,9 +535,15 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       analysisMutationData,
       isAnalyzing,
       analysisError,
+      cnnMutationData,
+      isCnnAnalyzing,
+      cnnError,
       setActiveDisaster,
+      setActiveFeature,
       clearAnalysis,
       runAnalysis,
+      runCnnAnalysis,
+      clearCnnAnalysis,
     ],
   );
 

@@ -4,6 +4,11 @@ backend/.python-version
 
 backend/.env
 
+backend/uvicorn_err.txt
+backend/uvicorn_out.txt
+backend/models/
+backend/reports/
+
 frontend/node_modules
 frontend/.tanstack
 
@@ -11,3 +16,5 @@ frontend/.tanstack
 !.vscode/extensions.json
 .idea
 .zed/
+
+.claude/
