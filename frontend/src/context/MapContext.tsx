@@ -471,8 +471,7 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const analysisError =
     analysisMutationError instanceof Error ? analysisMutationError.message : null;
 
-  const cnnError =
-    cnnMutationError instanceof Error ? cnnMutationError.message : null;
+  const cnnError = cnnMutationError instanceof Error ? cnnMutationError.message : null;
 
   const value = React.useMemo<MapContextValue>(
     () => ({
