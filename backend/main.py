@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(Path(__file__).with_name(".env"))
 
 from chatbot import app as chatbot_router  # noqa: E402
+from cnn import app as cnn_router  # noqa: E402
 from db import app as db_router  # noqa: E402
 from vlm import app as vlm_router  # noqa: E402
 
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(chatbot_router)
+    app.include_router(cnn_router)
     app.include_router(db_router)
     app.include_router(vlm_router)
 
