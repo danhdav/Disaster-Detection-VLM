@@ -113,7 +113,7 @@ function FeatureDetailPanel() {
 
   const preImageSrc = sceneLabels?.pre?.imageUrl ?? null;
   const postImageSrc = sceneLabels?.post?.imageUrl ?? null;
-  const analysisLines = analysisResult ? formatAnalysisResult(analysisResult) : [];
+  const analysisLines = analysisResult ? flattenAnalysisValue(analysisResult) : [];
 
   return (
     <>
