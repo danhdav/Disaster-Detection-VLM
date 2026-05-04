@@ -1,0 +1,13 @@
+backend/__pycache__
+backend/.venv
+backend/.python-version
+
+backend/.env
+
+frontend/node_modules
+frontend/.tanstack
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.zed/
