@@ -188,6 +188,35 @@ async def get_scene_image(scene_id: str, phase: str):
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+    
+
+# Fetch ALL VLM analyses results to use with the chatbot
+@app.get("/fire/analysis", response_model=list[dict[str, Any]])
+async def get_analysis_documents(
+    disasterId: str | None = Query(default=None),
+    sceneId: str | None = Query(default=None),
+    featureId: str | None = Query(default=None),
+    limit: int = Query(default=5, ge=1, le=50),
+):
+    _require_mongo()
+    if analysis_collection is None:
+        raise HTTPException(status_code=503, detail="Analysis collection not configured")
+    try:
+        filt: dict[str, Any] = {}
+        if disasterId:
+            filt["disasterId"] = disasterId
+        if sceneId:
+            filt["sceneId"] = sceneId
+        if featureId:
+            filt["featureId"] = featureId
+        cursor = analysis_collection.find(filt).sort("createdAt", -1).limit(limit)
+        docs = []
+        for d in cursor:
+            d["_id"] = str(d.get("_id"))
+            docs.append(d)
+        return docs
+    except PyMongoError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/debug/health")

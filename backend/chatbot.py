@@ -12,6 +12,8 @@ import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field # use for data validation error checking
 
+from rag import retrieve_context, add_documents, init_rag_collection, get_collection_stats
+
 app = APIRouter(tags=["chatbot"])
 
 
@@ -147,6 +149,12 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
         "Answer clearly and concisely. If you cite numbers, note they are illustrative "
         "unless the user provided real data."
     )
+    
+    # Retrieve RAG context based on the user's message
+    rag_context = retrieve_context(body.message, n_results=3)
+    if rag_context:
+        system += "\n\nRelevant context from knowledge base:\n" + "\n".join(rag_context)
+    
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for turn in body.conversation_history: # include conversation history for context
         role = turn.role.lower().strip()
@@ -164,3 +172,54 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return {"response": text, "message": text, "stats": None}
+
+
+# Ingest documents into the RAG system
+class IngestDocumentsRequest(BaseModel):
+    documents: list[str] = Field(min_length=1, description="List of documents to ingest")
+    ids: list[str] | None = None
+    metadata: list[dict] | None = None
+
+
+@app.post("/api/ingest-documents")
+def ingest_documents(body: IngestDocumentsRequest) -> dict[str, Any]:
+    """Load documents into the RAG system for context retrieval"""
+    try:
+        init_rag_collection()
+        
+        # Generate IDs if not provided
+        ids = body.ids or [f"doc_{i}" for i in range(len(body.documents))]
+        
+        if len(ids) != len(body.documents):
+            raise HTTPException(
+                status_code=400,
+                detail="Number of IDs must match number of documents"
+            )
+        
+        add_documents(
+            documents=body.documents,
+            ids=ids,
+            metadata=body.metadata
+        )
+        
+        stats = get_collection_stats()
+        return {
+            "status": "ok",
+            "message": f"Ingested {len(body.documents)} document(s)",
+            "total_documents": stats["document_count"],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest documents: {exc}") from exc
+
+
+# Get RAG collection stats
+@app.get("/api/rag-stats")
+def get_rag_stats() -> dict[str, Any]:
+    """Get statistics about the RAG document collection"""
+    try:
+        stats = get_collection_stats()
+        return {"status": "ok", "stats": stats}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get RAG stats: {exc}") from exc
