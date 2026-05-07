@@ -1,18 +1,22 @@
-'''
+"""
 This file handles all chatbot-related API endpoints (i.e messages and session handling).
-'''
+"""
 
 from __future__ import annotations
 
 import os
 from typing import Any
-from uuid import uuid4 # for generating unique session IDs
+from uuid import uuid4  # for generating unique session IDs
 
 import requests
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field # use for data validation error checking
-
-from rag import retrieve_context, add_documents, init_rag_collection, get_collection_stats
+from pydantic import BaseModel, Field  # use for data validation error checking
+from .rag import (
+    add_documents,
+    get_collection_stats,
+    init_rag_collection,
+    retrieve_context_routed,
+)
 
 app = APIRouter(tags=["chatbot"])
 
@@ -21,26 +25,45 @@ app = APIRouter(tags=["chatbot"])
 # { session_id: { user_id: [ {"prompt": ..., "response": ...}, ... ] } }
 chat_sessions: dict[str, dict[str, list[dict[str, str]]]] = {}
 
+"""
+----------------------
+--- Message Models ---
+----------------------
+"""
+
+
 # chat message model for session history
 class ChatMessageIn(BaseModel):
     user: str = Field(min_length=1, description="User identifier")
     prompt: str = Field(min_length=1)
     response: str = Field(min_length=1)
 
+
 # session history response model
 class SessionHistoryResponse(BaseModel):
     session_id: str
     history: dict[str, list[dict[str, str]]]
+
 
 # chat turn model
 class ChatTurn(BaseModel):
     role: str
     content: str
 
+
 # chatbot request model; includes the conversation history as context
 class ChatApiRequest(BaseModel):
     message: str = Field(min_length=1)
+    session_id: str | None = None
     conversation_history: list[ChatTurn] = Field(default_factory=list)
+
+
+"""
+------------------
+--- OpenRouter ---
+------------------
+"""
+
 
 # Send chat request to OpenRouter and return the response
 def openrouter_chat(messages: list[dict[str, Any]]) -> str:
@@ -51,11 +74,11 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
     model = os.getenv("OPENROUTER_CHAT_MODEL")
     if not model:
         raise RuntimeError("OPENROUTER_CHAT_MODEL is not set")
-    
+
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.4, # adjust for response determinism
+        "temperature": 0.4,  # adjust for response determinism
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -87,6 +110,7 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
 def index() -> dict[str, str]:
     return {"message": "Chatbot API", "docs": "/docs"}
 
+
 # Create a new chat session and return its ID
 @app.post("/chat/sessions", status_code=201)
 def create_session() -> dict[str, str]:
@@ -94,6 +118,7 @@ def create_session() -> dict[str, str]:
     chat_sessions[session_id] = {}
     print("Session created: ", session_id)  # Debug log
     return {"session_id": session_id}
+
 
 # Delete all chat sessions (after site refresh or exit)
 @app.delete("/chat/sessions")
@@ -112,10 +137,12 @@ def delete_session(session_id: str) -> dict[str, str]:
     del chat_sessions[session_id]
     return {"message": f"Session {session_id} deleted"}
 
+
 # Get all chat sessions and their histories (for debugging; not paginated)
 @app.get("/chat/history")
 def get_all_history() -> dict[str, dict[str, list[dict[str, str]]]]:
     return chat_sessions
+
 
 # Get the chat history for a specific session
 @app.get("/chat/history/{session_id}", response_model=SessionHistoryResponse)
@@ -140,23 +167,29 @@ def add_to_history(session_id: str, message: ChatMessageIn) -> SessionHistoryRes
 
     return SessionHistoryResponse(session_id=session_id, history=session_history)
 
+
 # Call this endpoint every time a new chat is sent
 @app.post("/api/chat")
 def api_chat(body: ChatApiRequest) -> dict[str, Any]:
+    session_id = body.session_id or "default"
+
     # System prompt (runs before user prompt at the start of every conversation)
     system = (
         "You are an assistant for disaster damage assessment from satellite imagery. "
         "Answer clearly and concisely. If you cite numbers, note they are illustrative "
         "unless the user provided real data."
     )
-    
-    # Retrieve RAG context based on the user's message
-    rag_context = retrieve_context(body.message, n_results=3)
+
+    # Retrieve RAG context using routed query patterns + short-term memory.
+    retrieval = retrieve_context_routed(body.message, session_id=session_id, n_results=3)
+    rag_context = retrieval["documents"]
     if rag_context:
-        system += "\n\nRelevant context from knowledge base:\n" + "\n".join(rag_context)
-    
+        system += (
+            "\n\nRelevant context from knowledge base:\n" + "\n".join(rag_context)
+        )
+
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-    for turn in body.conversation_history: # include conversation history for context
+    for turn in body.conversation_history:  # include conversation history for context
         role = turn.role.lower().strip()
         if role not in ("user", "assistant"):
             continue
@@ -166,17 +199,28 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
     try:
         text = openrouter_chat(messages)
     except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"OpenRouter request failed: {exc}"
+        ) from exc
     except RuntimeError as exc:
         print(f"RuntimeError: {exc}")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    return {"response": text, "message": text, "stats": None}
+    return {
+        "response": text,
+        "message": text,
+        "stats": {
+            "route": retrieval["route"],
+            "contextDocuments": len(rag_context),
+        },
+    }
 
 
 # Ingest documents into the RAG system
 class IngestDocumentsRequest(BaseModel):
-    documents: list[str] = Field(min_length=1, description="List of documents to ingest")
+    documents: list[str] = Field(
+        min_length=1, description="List of documents to ingest"
+    )
     ids: list[str] | None = None
     metadata: list[dict] | None = None
 
@@ -186,22 +230,17 @@ def ingest_documents(body: IngestDocumentsRequest) -> dict[str, Any]:
     """Load documents into the RAG system for context retrieval"""
     try:
         init_rag_collection()
-        
+
         # Generate IDs if not provided
         ids = body.ids or [f"doc_{i}" for i in range(len(body.documents))]
-        
+
         if len(ids) != len(body.documents):
             raise HTTPException(
-                status_code=400,
-                detail="Number of IDs must match number of documents"
+                status_code=400, detail="Number of IDs must match number of documents"
             )
-        
-        add_documents(
-            documents=body.documents,
-            ids=ids,
-            metadata=body.metadata
-        )
-        
+
+        add_documents(documents=body.documents, ids=ids, metadata=body.metadata)
+
         stats = get_collection_stats()
         return {
             "status": "ok",
@@ -211,7 +250,9 @@ def ingest_documents(body: IngestDocumentsRequest) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to ingest documents: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to ingest documents: {exc}"
+        ) from exc
 
 
 # Get RAG collection stats
@@ -222,4 +263,6 @@ def get_rag_stats() -> dict[str, Any]:
         stats = get_collection_stats()
         return {"status": "ok", "stats": stats}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to get RAG stats: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get RAG stats: {exc}"
+        ) from exc

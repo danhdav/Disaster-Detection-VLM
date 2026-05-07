@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,12 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 # Load local environment variables before importing API modules.
 load_dotenv(Path(__file__).with_name(".env"))
 
-from chatbot import app as chatbot_router  # noqa: E402
+from chatbot.chatbot import app as chatbot_router  # noqa: E402
 from db import app as db_router  # noqa: E402
 from vlm import app as vlm_router  # noqa: E402
-
-
-
 
 
 def _cors_origins() -> list[str]:
@@ -49,5 +45,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
-

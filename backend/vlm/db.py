@@ -10,24 +10,21 @@ from typing import Any
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import RedirectResponse
-from pymongo.collection import Collection
-from pymongo.errors import PyMongoError
-
-
 from dataparser import (
     S3_IMAGES_PREFIX,
     bucket_name,
     labels_collection,
     mongo_client,
     mongo_db_name,
-    s3_client,
     presigned_scene_image_urls,
+    s3_client,
     test_mongodb_connection,
     test_s3_connection,
 )
-
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from pymongo.collection import Collection
+from pymongo.errors import PyMongoError
 
 app = APIRouter(tags=["data"])
 
@@ -66,17 +63,83 @@ def _require_s3():
         )
 
 
-@app.get("/fire", response_model=list[dict[str, Any]])
-async def get_fire_labels():
+def _parse_fields(fields: str | None, defaults: list[str]) -> dict[str, int]:
+    selected = defaults
+    if fields:
+        selected = [item.strip() for item in fields.split(",") if item.strip()]
+    projection = {field: 1 for field in selected}
+    projection["_id"] = 1
+    return projection
+
+
+def _encode_doc_ids(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for doc in documents:
+        if "_id" in doc:
+            doc["_id"] = str(doc["_id"])
+    return documents
+
+
+def _paginated_response(
+    items: list[dict[str, Any]], *, total: int, limit: int, offset: int
+) -> dict[str, Any]:
+    return {
+        "items": items,
+        "paging": {
+            "limit": limit,
+            "offset": offset,
+            "returned": len(items),
+            "total": total,
+            "hasMore": offset + len(items) < total,
+        },
+    }
+
+
+@app.get("/fire", response_model=dict[str, Any])
+async def get_fire_labels(
+    imgName: str | None = Query(default=None),
+    disaster: str | None = Query(default=None),
+    disasterType: str | None = Query(default=None),
+    filename: str | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    fields: str | None = Query(default=None),
+):
     _require_mongo()
     assert fire_labels_collection is not None
     try:
-        labels = list(fire_labels_collection.find())
-        print(f"Total labels retrieved: {len(labels)}")
-        for label in labels:
-            if "_id" in label:
-                label["_id"] = str(label["_id"])
-        return labels
+        filt: dict[str, Any] = {}
+        if imgName:
+            key = imgName if imgName.lower().endswith(".png") else f"{imgName}.png"
+            filt["metadata.img_name"] = key
+        if disaster:
+            filt["metadata.disaster"] = disaster
+        if disasterType:
+            filt["metadata.disaster_type"] = disasterType
+        if filename:
+            filt["filename"] = filename
+
+        projection = _parse_fields(
+            fields,
+            defaults=[
+                "metadata.img_name",
+                "metadata.disaster",
+                "metadata.disaster_type",
+                "filename",
+                "lat",
+                "lon",
+                "createdAt",
+                "updatedAt",
+            ],
+        )
+        total = fire_labels_collection.count_documents(filt)
+        cursor = (
+            fire_labels_collection.find(filt, projection)
+            .sort("_id", -1)
+            .skip(offset)
+            .limit(limit)
+        )
+        docs = _encode_doc_ids(list(cursor))
+        return _paginated_response(docs, total=total, limit=limit, offset=offset)
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -188,19 +251,24 @@ async def get_scene_image(scene_id: str, phase: str):
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-    
 
-# Fetch ALL VLM analyses results to use with the chatbot
-@app.get("/fire/analysis", response_model=list[dict[str, Any]])
+
+# Fetch VLM analyses with pagination/filtering for chatbot context retrieval.
+@app.get("/fire/analysis", response_model=dict[str, Any])
 async def get_analysis_documents(
     disasterId: str | None = Query(default=None),
     sceneId: str | None = Query(default=None),
     featureId: str | None = Query(default=None),
-    limit: int = Query(default=5, ge=1, le=50),
+    sourceType: str | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    fields: str | None = Query(default=None),
 ):
     _require_mongo()
     if analysis_collection is None:
-        raise HTTPException(status_code=503, detail="Analysis collection not configured")
+        raise HTTPException(
+            status_code=503, detail="Analysis collection not configured"
+        )
     try:
         filt: dict[str, Any] = {}
         if disasterId:
@@ -209,12 +277,34 @@ async def get_analysis_documents(
             filt["sceneId"] = sceneId
         if featureId:
             filt["featureId"] = featureId
-        cursor = analysis_collection.find(filt).sort("createdAt", -1).limit(limit)
-        docs = []
-        for d in cursor:
-            d["_id"] = str(d.get("_id"))
-            docs.append(d)
-        return docs
+        if sourceType:
+            filt["source_type"] = sourceType
+
+        projection = _parse_fields(
+            fields,
+            defaults=[
+                "disasterId",
+                "sceneId",
+                "featureId",
+                "source_type",
+                "filename",
+                "lat",
+                "lon",
+                "summary",
+                "confidence",
+                "createdAt",
+                "updatedAt",
+            ],
+        )
+        total = analysis_collection.count_documents(filt)
+        cursor = (
+            analysis_collection.find(filt, projection)
+            .sort("createdAt", -1)
+            .skip(offset)
+            .limit(limit)
+        )
+        docs = _encode_doc_ids(list(cursor))
+        return _paginated_response(docs, total=total, limit=limit, offset=offset)
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
