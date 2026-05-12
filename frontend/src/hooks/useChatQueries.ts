@@ -46,11 +46,13 @@ export function useSendChatMessageMutation() {
       message,
       history,
       sessionId,
+      filters, // <-- NEW: Accept filters
     }: {
       message: string;
       history: ChatMessageRequest[];
       sessionId: string;
-    }) => sendChatMessage(message, history, sessionId),
+      filters?: Record<string, any>; // <-- NEW: Define the type
+    }) => sendChatMessage(message, history, sessionId, filters), // <-- NEW: Pass to API
   });
 }
 

@@ -8,7 +8,7 @@ db = client["disaster_assessment"] # Name of your database
 collection = db["images"]          # Name of your collection
 
 # Point this to the folder where all your downloaded JSONs are
-folder_path = r"C:\Users\Proshun Saha\Downloads\test images tar\test_images_labels_targets\test\labels"
+folder_path = r"C:\Users\Proshun Saha\Downloads\test images tar\test_images_labels_targets\test\labels" 
 
 # This loop does the clicking for you
 for filename in os.listdir(folder_path):

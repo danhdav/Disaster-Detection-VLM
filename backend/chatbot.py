@@ -5,15 +5,32 @@ This file handles all chatbot-related API endpoints (i.e messages and session ha
 from __future__ import annotations
 
 import os
+import logging
 from typing import Any
 from uuid import uuid4 # for generating unique session IDs
 
 import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field # use for data validation error checking
+import chromadb # <-- NEW: Imported ChromaDB
+
+# Setup basic logging to see errors in your terminal
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = APIRouter(tags=["chatbot"])
 
+# ==========================================
+# RAG: CHROMADB INITIALIZATION
+# ==========================================
+CHROMA_PATH = "./xview2_vector_db"
+try:
+    chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+    disaster_collection = chroma_client.get_or_create_collection(name="disaster_assessments")
+    logger.info("ChromaDB initialized successfully.")
+except Exception as e:
+    logger.error(f"Failed to initialize ChromaDB: {e}")
+    disaster_collection = None
 
 # In-memory session storage:
 # { session_id: { user_id: [ {"prompt": ..., "response": ...}, ... ] } }
@@ -39,6 +56,8 @@ class ChatTurn(BaseModel):
 class ChatApiRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_history: list[ChatTurn] = Field(default_factory=list)
+    # NEW: Accept an optional dictionary of metadata filters from the frontend
+    filters: dict[str, Any] = Field(default_factory=dict)
 
 # Send chat request to OpenRouter and return the response
 def openrouter_chat(messages: list[dict[str, Any]]) -> str:
@@ -53,7 +72,7 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.4, # adjust for response determinism
+        "temperature": 0.4, 
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -85,86 +104,92 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
 def index() -> dict[str, str]:
     return {"message": "Chatbot API", "docs": "/docs"}
 
-# Create a new chat session and return its ID
 @app.post("/chat/sessions", status_code=201)
 def create_session() -> dict[str, str]:
     session_id = str(uuid4())
     chat_sessions[session_id] = {}
-    print("Session created: ", session_id)  # Debug log
     return {"session_id": session_id}
 
-# Delete all chat sessions (after site refresh or exit)
 @app.delete("/chat/sessions")
 def delete_all_sessions() -> dict[str, Any]:
     deleted_count = len(chat_sessions)
     chat_sessions.clear()
     return {"message": "All chat sessions deleted", "deleted_count": deleted_count}
 
-
-# Delete a session and its history (run for specific session deletion in the sidebar)
 @app.delete("/chat/sessions/{session_id}")
 def delete_session(session_id: str) -> dict[str, str]:
     if session_id not in chat_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-
     del chat_sessions[session_id]
     return {"message": f"Session {session_id} deleted"}
 
-# Get all chat sessions and their histories (for debugging; not paginated)
 @app.get("/chat/history")
 def get_all_history() -> dict[str, dict[str, list[dict[str, str]]]]:
     return chat_sessions
 
-# Get the chat history for a specific session
 @app.get("/chat/history/{session_id}", response_model=SessionHistoryResponse)
 def get_session_history(session_id: str) -> SessionHistoryResponse:
     history = chat_sessions.get(session_id)
     if history is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
     return SessionHistoryResponse(session_id=session_id, history=history)
 
-
-# Add to a session's chat history; should be called after every message exchange (user prompt + assistant response)
 @app.post("/chat/history/{session_id}", response_model=SessionHistoryResponse)
 def add_to_history(session_id: str, message: ChatMessageIn) -> SessionHistoryResponse:
     if session_id not in chat_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-
     session_history = chat_sessions[session_id]
     session_history.setdefault(message.user, []).append(
         {"prompt": message.prompt, "response": message.response}
     )
-
     return SessionHistoryResponse(session_id=session_id, history=session_history)
 
 # Call this endpoint every time a new chat is sent
+# Call this endpoint every time a new chat is sent
 @app.post("/api/chat")
 def api_chat(body: ChatApiRequest) -> dict[str, Any]:
-    # System prompt (runs before user prompt at the start of every conversation)
+    rag_context = ""
+    
+    if disaster_collection:
+        try:
+            # We search specifically for the filename or keywords in the message
+            query_kwargs = {
+                "query_texts": [body.message],
+                "n_results": 5 # Increased to 5 for better coverage
+            }
+
+            if body.filters and len(body.filters) > 0:
+                query_kwargs["where"] = body.filters
+
+            results = disaster_collection.query(**query_kwargs)
+
+            if results and results.get('documents') and results['documents'][0]:
+                rag_context = "\n".join(results['documents'][0])
+                # DEBUG: Print this to your terminal to see what the LLM sees
+                print(f"--- RAG CONTEXT FOUND ---\n{rag_context}\n-------------------------")
+        except Exception as e:
+            logger.error(f"RAG Retrieval Error: {e}")
+
+    # STRENGTHENED SYSTEM PROMPT
     system = (
-        "You are an assistant for disaster damage assessment from satellite imagery. "
-        "Answer clearly and concisely. If you cite numbers, note they are illustrative "
-        "unless the user provided real data."
+        "You are the 'Disaster Assessment Assistant'. You have access to a database of satellite imagery labels. "
+        "Strictly use the 'RELEVANT DATABASE RECORDS' provided below to answer. "
+        "If the records contain information about a filename the user mentioned, summarize the building damage counts and location. "
+        "If no records are provided below, or they don't match the user's request, say: 'I couldn't find that specific record in my database.' "
+        "\n\nRELEVANT DATABASE RECORDS:\n"
+        f"{rag_context if rag_context else 'No records found for this query.'}"
     )
+    
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-    for turn in body.conversation_history: # include conversation history for context
-        role = turn.role.lower().strip()
-        if role not in ("user", "assistant"):
-            continue
-        messages.append({"role": role, "content": turn.content})
+    
+    # Add history and user message
+    for turn in body.conversation_history:
+        messages.append({"role": turn.role.lower(), "content": turn.content})
     messages.append({"role": "user", "content": body.message})
 
     try:
         text = openrouter_chat(messages)
-    except requests.RequestException as exc:
-        # Extract the exact JSON error from OpenRouter if it exists
-        error_details = exc.response.text if exc.response is not None else str(exc)
-        print(f"\n--- OPENROUTER ERROR ---\n{error_details}\n------------------------\n")
-        
-        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {error_details}") from exc
-    except RuntimeError as exc:
-        print(f"RuntimeError: {exc}")
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    return {"response": text, "message": text, "stats": None}
+        return {"response": text, "message": text, "stats": None}
+    except Exception as exc:
+        logger.error(f"Chat API Error: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error.")

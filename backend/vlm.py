@@ -254,8 +254,12 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             model_name=model_name,
         )
     except requests.RequestException as exc:
+        # NEW: Extract and print the exact JSON error from OpenRouter
+        error_details = exc.response.text if exc.response is not None else str(exc)
+        print(f"\n--- OPENROUTER VLM ERROR ---\n{error_details}\n----------------------------\n")
+        
         return _error_response(
-            status_code=502, error=f"OpenRouter request failed: {exc}"
+            status_code=502, error=f"OpenRouter request failed: {error_details}"
         )
     except Exception as exc:  # pragma: no cover - runtime guard
         return _error_response(status_code=500, error=str(exc))

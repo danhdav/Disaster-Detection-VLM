@@ -11,3 +11,4 @@ frontend/.tanstack
 !.vscode/extensions.json
 .idea
 .zed/
+backend/xview2_vector_db/
