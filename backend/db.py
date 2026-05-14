@@ -15,7 +15,7 @@ import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
@@ -295,25 +295,24 @@ scene_id format follows the following example: santa-rosa-wildfire_00000257
 @app.get("/image/{scene_id}/{phase}")
 async def get_scene_image(scene_id: str, phase: str):
     _require_s3()
+    assert s3_client is not None
+    assert bucket_name is not None
     phase_key = phase.strip().lower()
     if phase_key not in {"pre", "post"}:
         raise HTTPException(status_code=400, detail="Phase must be 'pre' or 'post'")
 
+    key = f"{S3_IMAGES_PREFIX}{scene_id}_{phase_key}_disaster.png"
     try:
-        urls = presigned_scene_image_urls(scene_id)
-        url_key = "pre_image_url" if phase_key == "pre" else "post_image_url"
-        target_url = urls.get(url_key)
-        if not target_url:
-            raise HTTPException(status_code=404, detail="Image URL not found")
-
-        return RedirectResponse(target_url)
-
-    except HTTPException:
-        raise
+        response = s3_client.get_object(Bucket=bucket_name, Key=key)
+        body = response["Body"]
+        media_type = response.get("ContentType") or "image/png"
+        return StreamingResponse(body.iter_chunks(), media_type=media_type)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    except s3_client.exceptions.NoSuchKey as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=404, detail=f"Image not found for key: {key}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

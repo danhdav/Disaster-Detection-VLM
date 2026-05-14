@@ -13,6 +13,7 @@ import {
   useChatSessionQuery,
   useChatSessionsQuery,
   useCreateChatSessionMutation,
+  useDeleteSessionMutation,
   usePersistSessionTurnMutation,
   useSendChatMessageMutation,
 } from "../../hooks/useChatQueries";
@@ -153,6 +154,7 @@ export function ChatSidebar() {
   const queryClient = useQueryClient();
   const sessionsQuery = useChatSessionsQuery();
   const createSessionMutation = useCreateChatSessionMutation();
+  const deleteSessionMutation = useDeleteSessionMutation();
   const sendMessageMutation = useSendChatMessageMutation();
   const persistTurnMutation = usePersistSessionTurnMutation();
 
@@ -165,6 +167,7 @@ export function ChatSidebar() {
   const [input, setInput] = useState("");
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionQuery = useChatSessionQuery(sessionId);
@@ -206,6 +209,29 @@ export function ChatSidebar() {
     }
     setSessionId(selectedSessionId);
     setInput("");
+  };
+
+  const handleDeleteSession = async (targetSessionId: string) => {
+    setDeletingSessionId(targetSessionId);
+    try {
+      await deleteSessionMutation.mutateAsync(targetSessionId);
+      queryClient.setQueryData(chatKeys.sessions(), (previous?: AllSessionHistoryMap) => {
+        if (!previous) return {};
+        const next = { ...previous };
+        delete next[targetSessionId];
+        return next;
+      });
+      queryClient.removeQueries({ queryKey: chatKeys.session(targetSessionId) });
+      if (sessionId === targetSessionId) {
+        setSessionId(null);
+        setDraftMessages([createInitialAssistantMessage()]);
+        setInput("");
+      }
+    } catch {
+      // Ignore delete failures in UI state and keep current list.
+    } finally {
+      setDeletingSessionId(null);
+    }
   };
 
   useEffect(() => {
@@ -295,7 +321,7 @@ export function ChatSidebar() {
     // ==========================================
     // NEW: CONTEXT-AWARE RAG FILTERING
     // ==========================================
-    const activeFilters: Record<string, any> = {};
+    const activeFilters: Record<string, unknown> = {};
 
     if (activeDisasterId) {
       activeFilters["disaster_type"] = activeDisasterId.includes("-")
@@ -417,17 +443,30 @@ export function ChatSidebar() {
             <p className={classes.surgeChatEmptySessionCopy}>No sessions yet.</p>
           ) : (
             sessions.map((session) => (
-              <button
+              <div
                 key={session.id}
                 className={`${classes.surgeChatSessionItem} ${session.id === sessionId ? classes.isActive : ""}`}
-                type="button"
-                onClick={() => handleSelectSession(session.id)}
               >
-                <span className={classes.surgeChatSessionId}>{session.id}</span>
-                <span className={classes.surgeChatSessionTime}>
-                  {session.createdAt.toLocaleTimeString()}
-                </span>
-              </button>
+                <button
+                  className={classes.surgeChatSessionSelect}
+                  type="button"
+                  onClick={() => handleSelectSession(session.id)}
+                >
+                  <span className={classes.surgeChatSessionId}>{session.id}</span>
+                  <span className={classes.surgeChatSessionTime}>
+                    {session.createdAt.toLocaleTimeString()}
+                  </span>
+                </button>
+                <button
+                  className={classes.surgeChatSessionDeleteBtn}
+                  type="button"
+                  aria-label={`Delete session ${session.id}`}
+                  disabled={deletingSessionId === session.id}
+                  onClick={() => void handleDeleteSession(session.id)}
+                >
+                  ×
+                </button>
+              </div>
             ))
           )}
         </div>

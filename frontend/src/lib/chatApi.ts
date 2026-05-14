@@ -137,10 +137,20 @@ export async function persistSessionTurn(
   }
 }
 
+export async function deleteSessionHistory(sessionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/chat/history/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to delete session history (HTTP ${response.status})`);
+  }
+}
+
 export async function sendChatMessage(
   message: string,
   history: ChatMessageRequest[],
   sessionId: string,
+  filters?: Record<string, unknown>,
 ): Promise<ChatMessageResponse> {
   try {
     const response = await fetch(`${API_BASE}/api/chat`, {
@@ -152,6 +162,7 @@ export async function sendChatMessage(
       body: JSON.stringify({
         message,
         conversation_history: history,
+        filters: filters ?? {},
       }),
       signal: AbortSignal.timeout(10000),
     });

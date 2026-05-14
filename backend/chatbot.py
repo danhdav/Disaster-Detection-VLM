@@ -64,6 +64,7 @@ def _env_int(name: str, default: int) -> int:
 chat_sessions_cache_ttl_seconds = _env_int("CHAT_SESSIONS_CACHE_TTL_SECONDS", 300)
 CHAT_HISTORY_ALL_CACHE_KEY = "chat-sessions:all:v1"
 CHAT_HISTORY_SESSION_CACHE_PREFIX = "chat-sessions:session:"
+SUPPORTED_METADATA_FILTER_KEYS = {"disaster_type", "source_type", "lat", "lon"}
 chat_query_memory: dict[str, dict[str, Any]] = {}
 
 
@@ -329,6 +330,36 @@ def _extract_filter_value(filters: dict[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _split_rag_filters(
+    filters: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    where_filters: dict[str, Any] = {}
+    candidate_ids: list[str] = []
+
+    raw_id = filters.get("id")
+    if isinstance(raw_id, str) and raw_id.strip():
+        candidate_ids.append(raw_id.strip())
+
+    raw_ids = filters.get("ids")
+    if isinstance(raw_ids, list):
+        for value in raw_ids:
+            if isinstance(value, str) and value.strip():
+                candidate_ids.append(value.strip())
+
+    for key, value in filters.items():
+        if key in SUPPORTED_METADATA_FILTER_KEYS:
+            where_filters[key] = value
+
+    seen: set[str] = set()
+    deduped_ids: list[str] = []
+    for item in candidate_ids:
+        if item not in seen:
+            seen.add(item)
+            deduped_ids.append(item)
+
+    return where_filters, deduped_ids
+
+
 def _session_memory(session_id: str) -> dict[str, Any]:
     existing = chat_query_memory.get(session_id)
     if existing is not None:
@@ -357,44 +388,64 @@ def _retrieve_rag_context(
         return "", "no_collection", 0
 
     memory = _session_memory(session_id)
+    safe_filters, id_filters = _split_rag_filters(filters)
     routed = route_prompt_to_query(
         prompt,
         n_results=5,
         last_queried_filename=memory.get("last_queried_filename"),
         last_found_files=memory.get("last_found_files"),
         around_center=memory.get("around_center"),
-        disaster_type=_extract_filter_value(filters, "disaster_type"),
-        source_type=_extract_filter_value(filters, "source_type"),
+        disaster_type=_extract_filter_value(safe_filters, "disaster_type"),
+        source_type=_extract_filter_value(safe_filters, "source_type"),
     )
     route = routed["route"]
     query_payload = dict(routed["query_payload"])
     merged_where = _merge_where(
-        query_payload.get("where"), filters if filters else None
+        query_payload.get("where"), safe_filters if safe_filters else None
     )
     if merged_where:
         query_payload["where"] = merged_where
 
     rows: list[tuple[str, str, dict[str, Any]]]
-    candidate_ids = _candidate_ids_from_where(
-        query_payload.get("where")
-        if isinstance(query_payload.get("where"), dict)
-        else None
+    candidate_ids = list(id_filters)
+    candidate_ids.extend(
+        _candidate_ids_from_where(
+            query_payload.get("where")
+            if isinstance(query_payload.get("where"), dict)
+            else None
+        )
     )
-    if candidate_ids:
-        rows = _rows_from_get_results(disaster_collection.get(ids=candidate_ids))
+
+    deduped_candidate_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for item in candidate_ids:
+        if item not in seen_ids:
+            seen_ids.add(item)
+            deduped_candidate_ids.append(item)
+
+    if deduped_candidate_ids:
+        rows = _rows_from_get_results(disaster_collection.get(ids=deduped_candidate_ids))
         if not rows:
-            query_payload.pop("where", None)
-            query_payload["query_texts"] = [prompt]
-            query_payload["n_results"] = 5
-            rows = _rows_from_query_results(disaster_collection.query(**query_payload))
+            fallback_payload = dict(query_payload)
+            fallback_payload.pop("where", None)
+            fallback_payload["query_texts"] = [prompt]
+            fallback_payload["n_results"] = 5
+            rows = _rows_from_query_results(disaster_collection.query(**fallback_payload))
     else:
         rows = _rows_from_query_results(disaster_collection.query(**query_payload))
+        if not rows and query_payload.get("where"):
+            fallback_payload = dict(query_payload)
+            fallback_payload.pop("where", None)
+            fallback_payload["query_texts"] = [prompt]
+            fallback_payload["n_results"] = 5
+            rows = _rows_from_query_results(disaster_collection.query(**fallback_payload))
 
     matched_ids = [row[0] for row in rows]
     matched_docs = [row[1] for row in rows if row[1]]
     memory_updates = routed["memory_updates"]
     memory["last_queried_filename"] = memory_updates.get("last_queried_filename")
-    memory["last_found_files"] = matched_ids
+    if matched_ids:
+        memory["last_found_files"] = matched_ids
     if rows:
         first_metadata = rows[0][2]
         lat = first_metadata.get("lat")
@@ -487,7 +538,7 @@ def delete_all_sessions() -> dict[str, Any]:
     }
 
 
-@app.delete("/chat/sessions/{session_id}")
+@app.delete("/chat/history/{session_id}")
 def delete_session(session_id: str) -> dict[str, str]:
     collection = _require_chat_sessions_collection()
     try:
