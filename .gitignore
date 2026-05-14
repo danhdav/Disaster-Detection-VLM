@@ -1,7 +1,6 @@
-backend/__pycache__
+backend/**/__pycache__/
 backend/.venv
 backend/.python-version
-
 backend/.env
 
 frontend/node_modules
@@ -11,4 +10,7 @@ frontend/.tanstack
 !.vscode/extensions.json
 .idea
 .zed/
+
 backend/xview2_vector_db/
+backend/standalone-scripts/extracted_files/
+pyrightconfig.json

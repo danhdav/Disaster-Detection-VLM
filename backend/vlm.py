@@ -17,9 +17,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from dataparser import (
+    extract_label_data,
     fetch_scene_label_documents,
     find_feature_by_uid,
-    extract_label_data,
     presigned_scene_image_urls,
 )
 
@@ -164,7 +164,7 @@ def persist_analysis_via_fire(
     has_post_image: bool,
 ) -> str:
     endpoint = (
-        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:8000').rstrip('/')}/fire"
+        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:8000').rstrip('/')}/disaster_data"
     )
 
     # Create the VLM analysis result document structure
@@ -193,7 +193,7 @@ def persist_analysis_via_fire(
 
     if not inserted_id:
         raise RuntimeError(
-            "POST /fire did not return an inserted VLM analysis document"
+            "POST /disaster_data did not return an inserted VLM analysis document"
         )
     return str(inserted_id)
 
@@ -256,8 +256,10 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
     except requests.RequestException as exc:
         # NEW: Extract and print the exact JSON error from OpenRouter
         error_details = exc.response.text if exc.response is not None else str(exc)
-        print(f"\n--- OPENROUTER VLM ERROR ---\n{error_details}\n----------------------------\n")
-        
+        print(
+            f"\n--- OPENROUTER VLM ERROR ---\n{error_details}\n----------------------------\n"
+        )
+
         return _error_response(
             status_code=502, error=f"OpenRouter request failed: {error_details}"
         )
@@ -276,11 +278,13 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
         )
     except requests.RequestException as exc:
         return _error_response(
-            status_code=502, error=f"Persisting analysis via /fire failed: {exc}"
+            status_code=502,
+            error=f"Persisting analysis via /disaster_data failed: {exc}",
         )
     except Exception as exc:
         return _error_response(
-            status_code=500, error=f"Persisting analysis via /fire failed: {exc}"
+            status_code=500,
+            error=f"Persisting analysis via /disaster_data failed: {exc}",
         )
 
     return {

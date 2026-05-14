@@ -14,5 +14,4 @@ dependencies = [
   "routes>=2.5.1",
   "uvicorn[standard]>=0.38.0",
   "chromadb>=0.5.0",
-
 ]
