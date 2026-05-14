@@ -21,4 +21,8 @@
   "editor.codeActionsOnSave": {
     "source.fixAll.oxc": "always",
   },
+
+  // Python / BasedPyright
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+  "basedpyright.analysis.diagnosticMode": "workspace",
 }

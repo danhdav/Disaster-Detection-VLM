@@ -10,7 +10,7 @@ from typing import Any
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
-from dataparser import (
+from .dataparser import (
     S3_IMAGES_PREFIX,
     bucket_name,
     labels_collection,

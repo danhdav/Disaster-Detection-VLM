@@ -8,10 +8,16 @@ dependencies = [
     "boto3>=1.42.62",
     "chromadb>=1.5.8",
     "fastapi>=0.135.1",
+    "pydantic>=2.12.5",
     "pymongo>=4.16.0",
     "python-dotenv>=1.2.2",
     "redis>=7.4.0",
     "requests>=2.32.5",
     "routes>=2.5.1",
     "uvicorn[standard]>=0.38.0",
+]
+
+[dependency-groups]
+dev = [
+    "boto3-stubs[essential]>=1.42.62",
 ]

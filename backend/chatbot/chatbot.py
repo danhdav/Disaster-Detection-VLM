@@ -11,6 +11,7 @@ from uuid import uuid4  # for generating unique session IDs
 import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field  # use for data validation error checking
+
 from .rag import (
     add_documents,
     get_collection_stats,
@@ -181,12 +182,12 @@ def api_chat(body: ChatApiRequest) -> dict[str, Any]:
     )
 
     # Retrieve RAG context using routed query patterns + short-term memory.
-    retrieval = retrieve_context_routed(body.message, session_id=session_id, n_results=3)
+    retrieval = retrieve_context_routed(
+        body.message, session_id=session_id, n_results=3
+    )
     rag_context = retrieval["documents"]
     if rag_context:
-        system += (
-            "\n\nRelevant context from knowledge base:\n" + "\n".join(rag_context)
-        )
+        system += "\n\nRelevant context from knowledge base:\n" + "\n".join(rag_context)
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for turn in body.conversation_history:  # include conversation history for context

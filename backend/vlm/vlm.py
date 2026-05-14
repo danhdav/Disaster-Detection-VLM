@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from dataparser import (
+from .dataparser import (
     fetch_scene_label_documents,
     find_feature_by_uid,
     extract_label_data,
