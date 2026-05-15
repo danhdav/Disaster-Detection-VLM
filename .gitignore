@@ -1,7 +1,14 @@
+backend/__pycache__
 backend/**/__pycache__/
 backend/.venv
 backend/.python-version
 backend/.env
+
+backend/cnn/weights/
+backend/uvicorn_err.txt
+backend/uvicorn_out.txt
+backend/models/
+backend/reports/
 
 frontend/node_modules
 frontend/.tanstack
@@ -11,6 +18,10 @@ frontend/.tanstack
 .idea
 .zed/
 
+.claude/
 backend/xview2_vector_db/
+backend/debug_crops/
+backend/debug_crops_upscaled/
+backend/data/
 backend/standalone-scripts/extracted_files/
 pyrightconfig.json

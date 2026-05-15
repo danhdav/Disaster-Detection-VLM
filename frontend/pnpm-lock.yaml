@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+onlyBuiltDependencies:
+  - '@vaadin/vaadin-usage-statistics'
+  - core-js
+  - esbuild
+
 importers:
 
   .:
