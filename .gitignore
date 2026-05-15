@@ -22,5 +22,6 @@ frontend/.tanstack
 backend/xview2_vector_db/
 backend/debug_crops/
 backend/debug_crops_upscaled/
+backend/data/
 backend/standalone-scripts/extracted_files/
 pyrightconfig.json
