@@ -510,7 +510,7 @@ def call_l2_hierarchy(pre_b64: str, post_b64: str, model: str, tile_id: str = ""
         if damaged == "no" and s0_conf == "high":
             latency_ms = (time.perf_counter() - t0) * 1000
             result = json.dumps({"damage_level": "no-damage", "confidence": s0_conf,
-                                 "key_decision": f"Stage 0 detected no damage (conf={s0_conf})",
+                                 "key_evidence": "",
                                  "l1_assessment": "skipped", "l2_scores": {}})
             return result, latency_ms, total_tokens
 

@@ -127,15 +127,50 @@ def _crop_building_b64(
     return f"data:image/png;base64,{b64}"
 
 
-def _humanize_evidence(raw: str) -> list[str]:
-    """Strip internal pipeline jargon and return short, user-readable bullet points.
+def _write_evidence(raw: str, damage_level: str) -> list[str]:
+    """Use a fast Claude Haiku call to rewrite raw VLM reasoning into clean
+    user-facing bullet points describing only visual observations."""
+    import anthropic
 
-    Removes L1/L2 references, indicator names, scores, and boilerplate prefixes
-    like "Visual inspection confirms" — keeping only the core visual observation.
-    """
+    api_key = os.getenv("claude_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return _humanize_evidence(raw)
+
+    prompt = (
+        f"A building was classified as '{damage_level}' after a wildfire.\n\n"
+        f"Here is the internal reasoning from the analysis model:\n\"\"\"\n{raw}\n\"\"\"\n\n"
+        "Rewrite this as 2-4 short bullet points (plain text, no dashes or symbols) "
+        "describing ONLY what is visually observable in the before and after satellite images. "
+        "Rules:\n"
+        "- Describe roof condition, wall condition, debris, and footprint changes\n"
+        "- Use plain language a non-expert can understand\n"
+        "- No internal scoring, no path/gate/indicator references, no model terminology\n"
+        "- Each bullet on its own line\n"
+        "- Do not start bullets with 'The building' every time — vary the phrasing\n"
+        "- If the evidence is empty or uninformative, respond with exactly: NONE"
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        if text == "NONE" or not text:
+            return []
+        lines = [line.strip().lstrip("-•*·").strip() for line in text.splitlines()]
+        return [line for line in lines if len(line) > 10]
+    except Exception:
+        return _humanize_evidence(raw)
+
+
+def _humanize_evidence(raw: str) -> list[str]:
+    """Strip internal pipeline jargon and return short, user-readable bullet points."""
     import re
 
-    # Patterns that mark a whole sentence as purely technical (drop entirely)
+    # Patterns that mark a whole fragment as purely technical (drop entirely)
     _PURELY_TECHNICAL = [
         r"\bL[12]\b.*\bindicators?\b",
         r"\bL[12]\b.*\bscore[s]?\b",
@@ -149,64 +184,97 @@ def _humanize_evidence(raw: str) -> list[str]:
         r"\bL[12]\s+path\b",
         r"\bexplicit\s+['\"]?yes['\"]?\s+or\s+['\"]?no['\"]?\b",
         r"\bnot\s+unclear\b",
-        r"\ball\s+three\s+are\b",
-        r"\bsatisfying\s+the\b",
+        r"\ball\s+three\b",
+        r"\bsatisfying\b",
         r"\bscoring\s+highest\b",
         r"\bscor(?:es?|ing)\s+\d",
+        r"^\s*at\s+\d",
         r"\bwith\s+\w+_\w+\s+scoring\b",
         r"\bprevents\s+a\s+strict\b",
-        r"^\s*(?:but|and|so|however)\s*,",
+        r"^\s*(?:but|and|so|however|with|which)\s*[,\s]",
+        r"\broutes?\s+to\s+the\b",
+        r"\bpointing\s+(?:clearly\s+)?to\s+the\b",
+        r"\brules?\s+out\b",
+        r"\bsatisfies?\s+the\s+\w+\s+path\b",
+        r"\bclearly\s+satisfies?\b",
+        r"\bMAJOR\s+path\b",
+        r"\bDESTROYED\s+path\b",
+        r"\bMINOR\s+path\b",
+        r"\bno.damage\s+path\b",
+        r"\bmeeting\s+the\s+\w[\w-]*\s+(?:path|gate)\b",
+        r"\bover\s+all\s+other\s+classes\b",
+        r"\bpreferred\s+over\b",
+        r"\bStage\s+0\b",
+        r"\bCNN\b",
+        r"\bconf=\b",
+        r"\bdetected\s+(?:no\s+)?damage\b",
+        r"\ball\s+explicit\b",
+        r"\bindicator\b",
+        r"structure_still_standing|footprint_replaced|wall_collapse|roof_over_half",
     ]
 
-    def _clean_sentence(s: str) -> str:
-        # Remove orphaned closing parens and trailing score fragments
+    def _clean_fragment(s: str) -> str:
+        s = s.strip()
+        # Remove orphaned closing parens
         s = re.sub(r"^\s*\)\s*,?\s*", "", s)
-        s = re.sub(r",?\s*so\s+with\s+\w+\s+scoring\s+highest[^.]*", "", s, flags=re.IGNORECASE)
-        s = re.sub(r",?\s*with\s+\w+_\w+\s+scoring\s+highest[^.]*", "", s, flags=re.IGNORECASE)
-        # Remove orphaned conjunctions/clause starters left after stripping technical content
-        s = re.sub(r"^\s*(?:but|and|so|which|however)[,\s]+(?:which\s+)?prevents\s+a\s+strict[^.]*", "", s, flags=re.IGNORECASE)
-        s = re.sub(r",?\s*which\s+prevents\s+a\s+strict[^.]*", "", s, flags=re.IGNORECASE)
-        # Remove "— all three …" and similar dashes with technical content
-        s = re.sub(r"\s*[—–-]+\s*(?:all\s+three|and\s+the|the\s+L[12])[^.]*\.?", "", s, flags=re.IGNORECASE)
-        # Remove trailing ", and the L2 … ." clause (mixed sentences)
-        s = re.sub(r"[,;]?\s*and\s+(?:the\s+)?L[12][^.]*\.?", "", s, flags=re.IGNORECASE)
-        # Remove "the L1/L2 path …" clauses
+        # Remove "— meeting/satisfying/triggering the X path/gate" trailing clauses
+        s = re.sub(r"\s*[—–,]\s*(?:meeting|satisfying|triggering|passing)\s+the\s+\w[\w-]*(?:\s+path|\s+gate)?[^.]*", "", s, flags=re.IGNORECASE)
+        # Remove "— all three / and the / the L1/L2" trailing clauses
+        s = re.sub(r"\s*[—–-]+\s*(?:all\s+three|and\s+the|the\s+L[12])[^.]*", "", s, flags=re.IGNORECASE)
+        # Remove L1/L2 path/clause references
         s = re.sub(r"[,;]?\s*(?:the\s+)?L[12]\s+path[^,\.]*[,\.]?", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"[,;]?\s*(?:the\s+)?L[12][^,\.]{0,60}[,\.]?", "", s, flags=re.IGNORECASE)
         # Remove decision tree references
         s = re.sub(r"[,;]?\s*(?:the\s+)?strict\s+\w+\s+decision\s+tree[^,\.]*[,\.]?", "", s, flags=re.IGNORECASE)
-        # Remove leading boilerplate prefixes
-        s = re.sub(r"^[Vv]isual inspection confirms(?: that)?\s+", "", s)
-        s = re.sub(
-            r"^(?:The\s+)?(?:post-disaster\s+)?[Ii]mage(?:ry)?\s+(?:shows?|reveals?|confirms?)\s+(?:that\s+)?",
-            "", s
-        )
-        # Remove indicator=value pairs and their parenthesised lists
+        # Remove indicator=value pairs
         s = re.sub(r"\([^)]*=(?:yes|no|unclear)[^)]*\)", "", s)
         s = re.sub(r"\b\w+=(?:yes|no|unclear)\b", "", s)
-        # Remove any remaining standalone L2/L1 clauses
-        s = re.sub(r",?\s*(?:the\s+)?L[12][^,\.]*[,\.]?", "", s, flags=re.IGNORECASE)
+        # Remove "which prevents a strict…" clauses
+        s = re.sub(r",?\s*which\s+(?:prevents|blocks|stops)[^,.]*", "", s, flags=re.IGNORECASE)
+        # Remove "with ruling out X" phrases
+        s = re.sub(r",?\s*with\s+\w[\w-]*\s+ruling\s+out[^,.]*", "", s, flags=re.IGNORECASE)
+        # Remove score fragments like "scoring highest at 6"
+        s = re.sub(r",?\s*(?:so\s+)?with\s+\w+\s+scoring\s+highest[^.]*", "", s, flags=re.IGNORECASE)
+        # Drop fragments that start with a truncated word (1-4 lowercase chars then space)
+        # These are mid-word splits caused by pipe characters in the VLM output
+        if re.match(r"^[a-z]{1,4}\s", s):
+            return ""
+        # Remove leading boilerplate
+        s = re.sub(r"^(?:and\s+)?[Vv]isual\s+inspection\s+(?:confirms?|shows?)(?: that)?\s+", "", s)
+        s = re.sub(r"^(?:The\s+)?(?:post-disaster\s+)?[Ii]mage(?:ry)?\s+(?:shows?|reveals?|confirms?)\s+(?:that\s+)?", "", s)
+        s = re.sub(r"^[Vv]isually[,\s]+", "", s)
+        s = re.sub(r"^[Hh]owever[,\s]+", "", s)
+        s = re.sub(r"^[Aa]nd\s+(?:[Vv]isual\s+inspection\s+(?:confirms?|shows?)(?: that)?\s+)?", "", s)
+        s = re.sub(r"^[Oo]ver\s+all\s+other\s+classes[,\s]+", "", s, flags=re.IGNORECASE)
         # Clean up whitespace and punctuation artifacts
         s = re.sub(r"\s+", " ", s)
         s = re.sub(r"^\s*[,;\.]+\s*", "", s)
         s = s.strip().rstrip(".,;")
-        # Drop if still purely technical after cleaning
+        # Drop if still purely technical
         if any(re.search(p, s, re.IGNORECASE) for p in _PURELY_TECHNICAL):
+            return ""
+        # Drop very short or orphaned fragments
+        if len(s) < 15:
             return ""
         return s
 
-    # Split into sentences, clean each, discard empties
-    sentences = re.split(r"(?<=[.!?])\s+", raw.strip())
+    # Split on sentence boundaries AND pipe separators first
+    raw = raw.strip()
+    # Split on pipes that act as clause separators (surrounded by spaces/punctuation)
+    raw = re.sub(r"\s+\|\s+", " . ", raw)
+    # Remove any remaining pipe characters (mid-word artifacts)
+    raw = raw.replace("|", " ")
+    # Split on sentence endings
+    sentences = re.split(r"(?<=[.!?])\s+", raw)
     results = []
     for sent in sentences:
-        cleaned = _clean_sentence(sent.strip())
-        if cleaned and len(cleaned) > 10:
-            # Further split on semicolons within a sentence
-            for part in cleaned.split(";"):
-                part = part.strip().rstrip(".,;")
-                if len(part) > 8:
-                    results.append(part)
+        # Further split on semicolons
+        for fragment in re.split(r"[;]", sent):
+            cleaned = _clean_fragment(fragment)
+            if cleaned:
+                results.append(cleaned)
 
-    return results if results else [raw.strip()]
+    return results if results else []
 
 
 def _error_response(status_code: int, error: str) -> JSONResponse:
@@ -519,6 +587,9 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
         if diff_b64:
             print("VLM: polygon-masked diff heatmap computed.")
 
+    # Stage 0 is disabled for socal — smoke haze in pre-images causes false no-damage
+    _STAGE0_DISABLED_DISASTERS = {"socal-fire"}
+
     try:
         hierarchy_model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
         scene_description = _SCENE_OVERRIDES.get(scene_id, "")
@@ -528,7 +599,7 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             hierarchy_model,
             tile_id=scene_id,
             scene_description=scene_description,
-            use_stage0=True,
+            use_stage0=disaster_id not in _STAGE0_DISABLED_DISASTERS,
         )
         analysis_text = raw_result
     except Exception as exc:
@@ -566,9 +637,10 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             ),
         )
 
-    # Build a clean, human-readable evidence list
+    # Build a clean, human-readable evidence list via dedicated evidence writer
     raw_evidence = parsed.get("key_evidence", "") or ""
-    evidence_list = _humanize_evidence(raw_evidence)
+    damage_level = parsed.get("damage_level", "")
+    evidence_list = _write_evidence(raw_evidence, damage_level) if raw_evidence.strip() else []
 
     return {
         "status": "ok",
