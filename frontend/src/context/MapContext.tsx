@@ -287,6 +287,11 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
     });
   }, [activeDisasterId, fireLabelsQuery.data]);
 
+  const PREFERRED_SCENES: Record<string, string> = {
+    "santa-rosa-wildfire": "santa-rosa-wildfire_00000242",
+    "socal-fire": "socal-fire_00000937",
+  };
+
   React.useEffect(() => {
     const availableScenes = scenes;
     if (availableScenes.length === 0) {
@@ -299,13 +304,15 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
       availableScenes.some((scene) => scene.sceneId === activeSceneId);
     if (hasExisting) return;
 
+    const preferred = activeDisasterId ? PREFERRED_SCENES[activeDisasterId] : undefined;
     const sceneToUse =
+      (preferred && availableScenes.find((s) => s.sceneId === preferred)?.sceneId) ??
       availableScenes.find((scene) => scene.hasFeatures)?.sceneId ??
       availableScenes[0]?.sceneId ??
       null;
 
     setActiveSceneId(sceneToUse);
-  }, [activeSceneId, scenes]);
+  }, [activeSceneId, scenes, activeDisasterId]);
 
   const {
     mutateAsync: analyzeAsync,

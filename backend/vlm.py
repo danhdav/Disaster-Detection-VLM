@@ -149,11 +149,23 @@ def _humanize_evidence(raw: str) -> list[str]:
         r"\bgate\b.*\b(?:pass|fail)",
         r"\bfall[s]?\s+through\b",
         r"\bStep\s+\d\b",
+        r"\bdecision\s+tree\b",
+        r"\bL[12]\s+path\b",
+        r"\bexplicit\s+['\"]?yes['\"]?\s+or\s+['\"]?no['\"]?\b",
+        r"\bnot\s+unclear\b",
+        r"\ball\s+three\s+are\b",
+        r"\bsatisfying\s+the\b",
     ]
 
     def _clean_sentence(s: str) -> str:
+        # Remove "— all three …" and similar dashes with technical content
+        s = re.sub(r"\s*[—–-]+\s*(?:all\s+three|and\s+the|the\s+L[12])[^.]*\.?", "", s, flags=re.IGNORECASE)
         # Remove trailing ", and the L2 … ." clause (mixed sentences)
         s = re.sub(r"[,;]?\s*and\s+(?:the\s+)?L[12][^.]*\.?", "", s, flags=re.IGNORECASE)
+        # Remove "the L1/L2 path …" clauses
+        s = re.sub(r"[,;]?\s*(?:the\s+)?L[12]\s+path[^,\.]*[,\.]?", "", s, flags=re.IGNORECASE)
+        # Remove decision tree references
+        s = re.sub(r"[,;]?\s*(?:the\s+)?strict\s+\w+\s+decision\s+tree[^,\.]*[,\.]?", "", s, flags=re.IGNORECASE)
         # Remove leading boilerplate prefixes
         s = re.sub(r"^[Vv]isual inspection confirms(?: that)?\s+", "", s)
         s = re.sub(
@@ -383,7 +395,7 @@ def persist_analysis_via_fire(
     has_post_image: bool,
 ) -> str:
     endpoint = (
-        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:8000').rstrip('/')}/fire"
+        f"{os.getenv('INTERNAL_API_BASE', 'http://127.0.0.1:8000').rstrip('/')}/disaster_data"
     )
 
     # Create the VLM analysis result document structure
