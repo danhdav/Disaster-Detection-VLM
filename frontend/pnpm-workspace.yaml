@@ -1,4 +1,4 @@
 onlyBuiltDependencies:
-  - '@vaadin/vaadin-usage-statistics'
+  - "@vaadin/vaadin-usage-statistics"
   - core-js
   - esbuild
