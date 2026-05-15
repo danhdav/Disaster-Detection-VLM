@@ -5,8 +5,27 @@ To view the documentation UI, visit /docs
 
 from __future__ import annotations
 
+import csv
+import json
 import os
+import pathlib
 from typing import Any
+
+_GEOTRANSFORM_PATH = pathlib.Path(__file__).parent.parent / "xview_geotransforms.json"
+_geotransforms: dict = {}
+if _GEOTRANSFORM_PATH.is_file():
+    with open(_GEOTRANSFORM_PATH) as _f:
+        _geotransforms = json.load(_f)
+
+
+def _geotransform_bounds(
+    gt: list[float], width: int = 1024, height: int = 1024
+) -> list[float]:
+    min_lng = gt[0]
+    max_lng = gt[0] + width * gt[1]
+    max_lat = gt[3]
+    min_lat = gt[3] + height * gt[5]
+    return [min_lng, min_lat, max_lng, max_lat]
 
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
@@ -66,17 +85,64 @@ def _require_s3():
         )
 
 
+_allowed_disasters_raw = os.getenv("ALLOWED_DISASTERS", "").strip()
+_allowed_disasters: list[str] = (
+    [d.strip() for d in _allowed_disasters_raw.split(",") if d.strip()]
+    if _allowed_disasters_raw
+    else []
+)
+
+_eval_scenes_csv = os.getenv("EVAL_SCENES_CSV", "").strip()
+_allowed_scenes: list[str] = []
+# Maps scene_id -> set of allowed UIDs
+_eval_uids_by_scene: dict[str, set[str]] = {}
+if _eval_scenes_csv:
+    _csv_path = pathlib.Path(__file__).parent / _eval_scenes_csv
+    if _csv_path.is_file():
+        with open(_csv_path, newline="") as _f:
+            for row in csv.DictReader(_f):
+                tile = row.get("tile_id", "").strip()
+                uid = row.get("uid", "").strip()
+                if tile and uid:
+                    _eval_uids_by_scene.setdefault(tile, set()).add(uid)
+        _allowed_scenes = list(_eval_uids_by_scene.keys())
+
+
+def _filter_eval_features(doc: dict[str, Any]) -> dict[str, Any]:
+    """Keep only building features whose UID is in the eval set for this scene."""
+    if not _eval_uids_by_scene:
+        return doc
+    img_name = doc.get("metadata", {}).get("img_name", "")
+    scene_id = img_name.replace("_pre_disaster.png", "").replace("_post_disaster.png", "")
+    allowed = _eval_uids_by_scene.get(scene_id)
+    if allowed is None:
+        return doc
+    features = doc.get("features", {})
+    lng_lat = [f for f in features.get("lng_lat", []) if f.get("properties", {}).get("uid") in allowed]
+    xy = [f for f in features.get("xy", []) if f.get("properties", {}).get("uid") in allowed]
+    return {**doc, "features": {**features, "lng_lat": lng_lat, "xy": xy}}
+
+
 @app.get("/fire", response_model=list[dict[str, Any]])
 async def get_fire_labels():
     _require_mongo()
     assert fire_labels_collection is not None
     try:
-        labels = list(fire_labels_collection.find())
+        query: dict[str, Any] = {}
+        if _allowed_disasters:
+            query["metadata.disaster"] = {"$in": _allowed_disasters}
+        if _allowed_scenes:
+            scene_patterns = [f"{s}_pre_disaster.png" for s in _allowed_scenes] + \
+                             [f"{s}_post_disaster.png" for s in _allowed_scenes]
+            query["metadata.img_name"] = {"$in": scene_patterns}
+        labels = list(fire_labels_collection.find(query))
         print(f"Total labels retrieved: {len(labels)}")
+        result = []
         for label in labels:
             if "_id" in label:
                 label["_id"] = str(label["_id"])
-        return labels
+            result.append(_filter_eval_features(label))
+        return result
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -188,6 +254,18 @@ async def get_scene_image(scene_id: str, phase: str):
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/geotransform/{scene_id}")
+def get_geotransform(scene_id: str):
+    pre_key  = f"{scene_id}_pre_disaster.png"
+    post_key = f"{scene_id}_post_disaster.png"
+    pre_gt   = _geotransforms.get(pre_key,  [None])[0]
+    post_gt  = _geotransforms.get(post_key, [None])[0]
+    return {
+        "pre_bounds":  _geotransform_bounds(pre_gt)  if pre_gt  else None,
+        "post_bounds": _geotransform_bounds(post_gt) if post_gt else None,
+    }
 
 
 @app.get("/debug/health")

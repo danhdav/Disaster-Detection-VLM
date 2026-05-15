@@ -1,8 +1,15 @@
 backend/__pycache__
+backend/**/__pycache__
 backend/.venv
 backend/.python-version
 
 backend/.env
+
+backend/cnn/weights/
+backend/uvicorn_err.txt
+backend/uvicorn_out.txt
+backend/models/
+backend/reports/
 
 frontend/node_modules
 frontend/.tanstack
@@ -11,3 +18,5 @@ frontend/.tanstack
 !.vscode/extensions.json
 .idea
 .zed/
+
+.claude/

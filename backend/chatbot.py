@@ -81,10 +81,6 @@ def openrouter_chat(messages: list[dict[str, Any]]) -> str:
     return str(content_value)
 
 
-@app.get("/")
-def index() -> dict[str, str]:
-    return {"message": "Chatbot API", "docs": "/docs"}
-
 # Create a new chat session and return its ID
 @app.post("/chat/sessions", status_code=201)
 def create_session() -> dict[str, str]:
