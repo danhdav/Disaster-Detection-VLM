@@ -685,12 +685,16 @@ def api_chat(body: ChatApiRequest, request: Request) -> dict[str, Any]:
     system = (
         "You are the 'Disaster Assessment Assistant'. You help users analyze satellite imagery damage labels and disaster-related documents. "
         "You may respond naturally and politely to general greetings. "
-        "When answering specific questions, you must rely entirely on the 'RELEVANT DATABASE RECORDS' provided below. "
-        "- If the records contain satellite image data, summarize the building damage counts and location. "
-        "- If the records contain text from PDFs, you MUST use that text to form your response. Even if the text only partially addresses the user's prompt or lacks specific details, summarize whatever related information IS present in the text. Do not refuse to answer if text is provided. "
-        "Only say 'I couldn't find that specific information' if the 'RELEVANT DATABASE RECORDS' section is completely empty. "
+        
+        "CRITICAL KNOWLEDGE HIERARCHY:\n"
+        "1. PRIORITIZE DATA: When answering specific questions, you must first rely entirely on the 'RELEVANT DATABASE RECORDS' provided below. "
+        "2. DOCUMENT USAGE: If the records contain text from PDFs, you MUST use that text to form your response. Do not refuse to answer if text is provided. "
+        "3. FALLBACK TO GENERAL KNOWLEDGE: If the 'RELEVANT DATABASE RECORDS' do not contain specific information about a question, or if the records are empty, you should answer the question using your general internal knowledge (as a standard Large Language Model would). "
+        
+        "When using your general knowledge because the database is empty, politely mention that you are providing general information rather than specific record-based data. "
+
         "\n\nRELEVANT DATABASE RECORDS:\n"
-        f"{rag_context if rag_context else ''}"
+        f"{rag_context if rag_context else 'No records found in database.'}"
     )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
