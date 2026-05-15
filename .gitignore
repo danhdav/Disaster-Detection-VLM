@@ -20,6 +20,7 @@ frontend/.tanstack
 
 .claude/
 backend/xview2_vector_db/
+xview2_vector_db/
 backend/debug_crops/
 backend/debug_crops_upscaled/
 backend/data/

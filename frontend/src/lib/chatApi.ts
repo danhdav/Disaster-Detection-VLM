@@ -164,7 +164,7 @@ export async function sendChatMessage(
         conversation_history: history,
         filters: filters ?? {},
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

@@ -75,7 +75,7 @@ def sync_mongo_to_chroma():
     # 4. Push to ChromaDB
     if ids:
         collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
-        print(f"✅ Rollback Complete! {len(ids)} image summaries are now searchable.")
+        print(f"Sync complete! {len(ids)} image summaries are now searchable.")
     else:
         print("No matching records found.")
 
