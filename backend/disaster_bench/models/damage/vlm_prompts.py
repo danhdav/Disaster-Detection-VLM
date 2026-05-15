@@ -41,7 +41,7 @@ DAMAGE_SCHEMA = {
         },
         "destroyed_gate_passed": {
             "type": "boolean",
-            "description": "True only if at least 2 destroyed criteria are clearly visible",
+            "description": "True only if at least 3 destroyed criteria are clearly visible",
         },
         "key_evidence": {
             "type": "array",
@@ -54,7 +54,7 @@ DAMAGE_SCHEMA = {
         },
         "why_destroyed": {
             "type": "string",
-            "description": "Required when damage_level == destroyed. Which 2+ criteria passed.",
+            "description": "Required when damage_level == destroyed. Which 3+ criteria passed.",
         },
         "damage_level": {
             "type": "string",
@@ -78,38 +78,157 @@ DAMAGE_SCHEMA = {
 
 SYSTEM_PROMPT = """You are a remote sensing damage analyst classifying wildfire building damage from before/after satellite imagery.
 
-CRITICAL — JUDGE THE BUILDING STRUCTURE ONLY:
-Burned grass, scorched earth, charred trees, or ash fields AROUND the building do NOT count as building damage.
-A building surrounded by burned land but with its roof and walls intact is NO-DAMAGE.
-Only changes to the building's own roof, walls, and footprint matter.
+Use the xView2 damage scale — your goal is to identify the CORRECT class:
+- no-damage:    No visible structural change between BEFORE and AFTER images.
+- minor-damage: Superficial or partial damage. Roof partially affected, scorch marks, small debris nearby. Structure clearly still standing and mostly intact.
+- major-damage: Significant structural damage. Large portions of roof gone, partial wall collapse, heavy burn/charring, but building footprint still recognizable as a standing structure.
+- destroyed:    Complete structural loss. Building is rubble, ash, or missing. Only foundation or a debris field remains.
 
-WILDFIRE-SPECIFIC FALSE CUES — do NOT be fooled by these:
-- Light-colored or ash-gray ground surrounding the building = burned vegetation, NOT a debris field
-- Darker or discolored patches around the building = scorched earth, NOT building rubble
-- A light-colored or white patch WITHIN the building outline = the ROOF of an intact building. Light and white roofs are very common and do NOT indicate destruction.
-- A building that looks like a solid rectangle in the AFTER image is almost certainly intact — destroyed buildings lose their rectangular shape and become irregular rubble
-- The building footprint may appear surrounded by ash yet still be completely intact
-- Only label "destroyed" if the building STRUCTURE ITSELF (roof, walls) is visibly gone or collapsed within the red outline. If you can still see a rectangular rooftop shape, the building is NOT destroyed.
+CLASSIFICATION GATES — evaluate in order:
 
-Use the xView2 damage scale:
-- no-damage:    No visible structural change to the building itself between BEFORE and AFTER images.
-- minor-damage: Superficial or partial damage to the building. Roof partially affected, scorch marks on the structure, small debris on the building. Structure clearly still standing and mostly intact.
-- major-damage: Significant structural damage to the building. Large portions of roof gone, partial wall collapse, heavy burn/charring of the structure, but building footprint still recognizable as a standing structure.
-- destroyed:    Complete structural loss. The building itself is rubble, ash, or missing. Only foundation or a debris field remains where the building stood.
-
-DESTROYED GATE — You may only label a building "destroyed" if ALL 4 of these are clearly visible in the AFTER image:
-  1. Building footprint is mostly rubble, ash, or debris field (not just surrounded by it)
+DESTROYED GATE — label destroyed only if AT LEAST 3 of these are clearly visible in the AFTER image:
+  1. Building footprint is mostly rubble, ash, or debris field
   2. Roof completely gone and interior exposed across most of the footprint
   3. Walls largely collapsed (structure no longer standing as a building)
   4. Building appears missing or flattened compared to BEFORE
+→ If gate PASSES: destroyed. If gate FAILS but significant structural damage is visible: major-damage.
 
-If the building footprint is still recognizable as a standing structure (even if heavily damaged), choose major-damage, not destroyed.
-If the destroyed gate is NOT passed, choose major-damage, minor-damage, or no-damage.
-If uncertain between two adjacent classes, pick the LESS SEVERE option.
-Do NOT default to worst-case. Err toward no-damage or minor when in doubt.
-Burned surroundings with an intact building = no-damage.
+MAJOR-DAMAGE GATE — choose major-damage if AT LEAST 2 of these are clearly visible in the AFTER image:
+  1. More than half the roof area is missing, burned through, or collapsed
+  2. One or more walls visibly collapsed or breached
+  3. Large areas of exposed building interior visible through the roofline
+  4. Heavy burn/charring across most of the footprint
+→ If gate PASSES: major-damage. If gate FAILS but clear surface damage exists: minor-damage.
+
+MINOR-DAMAGE INDICATORS — choose minor-damage if you see ANY of these clearly visible in the AFTER image:
+  - Visible scorch marks, discoloration, or partial darkening of roof material compared to BEFORE
+  - Small sections of missing or damaged roof (less than half the total area)
+  - Debris adjacent to the building footprint that was not present in BEFORE
+  - Surface-level burn damage without structural loss
+→ If any indicator is present and major/destroyed gates are not met: minor-damage.
+
+NO DAMAGE — only if the building structure appears completely unchanged from BEFORE.
+
+When evidence is ambiguous between two classes, commit to your best assessment based on the visual evidence. Apply the gates above strictly — they are the primary decision criteria.
 
 Always respond with valid JSON matching the provided schema. Think step by step."""
+
+# ---------------------------------------------------------------------------
+# Scene-specific system prompts
+# ---------------------------------------------------------------------------
+
+SANTA_ROSA_SYSTEM_PROMPT = """You are a remote sensing damage analyst classifying building damage from the 2017 Santa Rosa Wildfire (Tubbs Fire) using before/after satellite imagery.
+
+SCENE CONTEXT — Santa Rosa, California:
+- Dense suburban residential neighborhoods (Coffey Park, Fountaingrove)
+- Typical buildings: 1–2 story single-family homes on grid-pattern streets
+- Common roof types: dark gray/brown composition shingle, some clay tile
+- Walls: light-colored stucco or painted wood siding
+- The fire moved extremely fast at night — buildings are most often either completely destroyed or completely intact; minor and major damage are less common but do occur
+- Destroyed buildings leave a bare concrete foundation slab (light gray rectangle) with no structure on top
+- Intact buildings show their original dark shingle or tile roof clearly as a dark rectangle matching BEFORE
+
+SANTA ROSA FALSE CUES — do NOT be fooled by:
+- A light gray concrete slab = foundation of a DESTROYED home (the building is gone). Distinguish from intact roofs by checking if the dark roof shape from BEFORE is absent.
+- Ash-gray surroundings = burned landscaping — the building itself may still be standing
+- Darkened or smoke-coated roofs = if the dark building shape still matches BEFORE, structure is likely intact
+- A dark rectangular shape matching BEFORE footprint exactly = almost certainly an intact building with shingle roof
+
+Use the xView2 damage scale — identify the CORRECT class:
+- no-damage:    Roof structure intact. Same shape and approximate color as BEFORE. Building clearly standing.
+- minor-damage: Building standing, roof shows scorch marks, partial discoloration, or small missing patches. Less than 25% of roof affected.
+- major-damage: Significant roof loss (>50% missing), partial wall collapse, interior exposed. Footprint still recognizable as a standing structure.
+- destroyed:    Only bare concrete foundation slab remains, OR complete rubble/ash field with no structure. Building has vanished.
+
+CLASSIFICATION GATES — evaluate in order:
+
+DESTROYED GATE — label destroyed only if AT LEAST 3 of these are clearly visible:
+  1. Bare concrete slab or rubble field where building stood
+  2. No roof material visible — structure completely gone
+  3. Walls absent — only foundation or debris remains
+  4. Building footprint appears flattened or missing vs BEFORE
+→ If gate PASSES: destroyed. If gate FAILS but large structural damage is visible: major-damage.
+
+MAJOR-DAMAGE GATE — choose major-damage if AT LEAST 2 of these are clearly visible:
+  1. More than half the roof area missing, burned through, or collapsed
+  2. Partial wall collapse visible on one or more sides
+  3. Large exposed interior visible through the roofline
+  4. Heavy charring/burn across most of the visible footprint
+→ If gate PASSES: major-damage.
+
+MINOR-DAMAGE INDICATORS — choose minor-damage if you see ANY of these:
+  - Scorch marks or discoloration on roof compared to BEFORE
+  - Small areas of missing roof (less than half)
+  - Debris adjacent to the building not present in BEFORE
+→ If any indicator is present and major/destroyed gates not met: minor-damage (not no-damage).
+
+NO DAMAGE — only if building appears completely unchanged from BEFORE.
+
+Commit to your best assessment based on visual evidence. Do not default to no-damage simply because you are uncertain.
+
+Always respond with valid JSON matching the provided schema. Think step by step."""
+
+
+SOCAL_SYSTEM_PROMPT = """You are a remote sensing damage analyst classifying building damage from Southern California wildfires (Woolsey/Thomas Fire area) using before/after satellite imagery.
+
+SCENE CONTEXT — Southern California:
+- Varied terrain: hillside, canyon, and flat residential areas (Malibu, Ventura, Thousand Oaks)
+- Typical buildings: 1–2 story homes, some larger estate properties, commercial structures
+- Common roof types: clay/concrete tile (reddish-orange or dark gray), flat roofs on commercial buildings, some composition shingle
+- Walls: stucco (beige/tan/white), painted concrete block
+- Chaparral (scrub brush) surrounds most homes — burned chaparral leaves extensive ash fields AROUND buildings that are NOT building damage
+- SoCal fires produce mixed damage — minor and major damage classes are frequent; do not assume buildings are only destroyed or intact
+- Hillside terrain means buildings may appear at angles — compare structure shape carefully between BEFORE and AFTER
+
+SOCAL FALSE CUES — do NOT be fooled by:
+- Large ash/gray fields surrounding the building = burned chaparral, NOT a debris field from the building
+- Reddish-orange or gray tile roofs appearing lighter in AFTER = ash deposit on intact tile roof, NOT destruction
+- Tan/beige stucco walls appearing discolored = smoke/heat, building may still be intact
+- Hillside shadow differences between images = lighting angle change, not structural change
+
+Use the xView2 damage scale — identify the CORRECT class:
+- no-damage:    No structural change. Roof color and shape match BEFORE. Building clearly standing.
+- minor-damage: Building standing. Scorch marks on roof, partial discoloration, small debris on roof or nearby. Structure mostly intact, less than 25% of roof affected.
+- major-damage: Substantial structural damage. Large sections of roof missing (>50%), partial wall collapse, heavy charring across footprint. Building outline still recognizable.
+- destroyed:    Complete structural loss. Building is rubble or ash. Only foundation or bare ground remains inside the red outline.
+
+CLASSIFICATION GATES — evaluate in order:
+
+DESTROYED GATE — label destroyed only if AT LEAST 3 of these are clearly visible:
+  1. Building footprint is rubble, ash, or debris field (not surrounding chaparral ash)
+  2. Roof completely gone — no tile or shingle material visible over footprint
+  3. Walls largely collapsed — structure no longer standing as a building
+  4. Building appears missing or flattened compared to BEFORE
+→ If gate PASSES: destroyed. If gate FAILS but significant structural damage is visible: major-damage.
+
+MAJOR-DAMAGE GATE — choose major-damage if AT LEAST 2 of these are clearly visible:
+  1. More than half the roof area missing, burned through, or collapsed
+  2. Partial wall collapse visible on one or more sides
+  3. Large areas of exposed interior visible through the roofline
+  4. Heavy charring/burn across most of the footprint
+→ If gate PASSES: major-damage.
+
+MINOR-DAMAGE INDICATORS — choose minor-damage if you see ANY of these (and major/destroyed gates are not met):
+  - Scorch marks, partial discoloration, or darkening of roof surface compared to BEFORE
+  - Small roof damage patches (less than half the area)
+  - Debris near the building that was not present in BEFORE
+  - Partial surface burn without structural loss
+→ If any indicator is present: minor-damage (not no-damage).
+
+NO DAMAGE — only if building appears completely unchanged from BEFORE.
+
+Apply the classification gates strictly as the primary decision criteria. When ambiguous, use whichever class has the most visual evidence support.
+
+Always respond with valid JSON matching the provided schema. Think step by step."""
+
+
+def get_system_prompt(tile_id: str = "") -> str:
+    """Return the scene-specific system prompt based on tile_id, or generic if unknown."""
+    if "santa-rosa" in tile_id:
+        return SANTA_ROSA_SYSTEM_PROMPT
+    if "socal" in tile_id:
+        return SOCAL_SYSTEM_PROMPT
+    return SYSTEM_PROMPT
 
 _SCHEMA_SUFFIX = (
     "Respond with JSON matching this schema:\n"
@@ -266,6 +385,229 @@ def local_composite_prompt(
             "Use both visual evidence and geometry to classify damage.\n\n"
         )
     return layout + geo_block + _SCHEMA_SUFFIX
+
+
+# ---------------------------------------------------------------------------
+# Multi-agent architecture: 4 class specialists + supervisor
+# ---------------------------------------------------------------------------
+
+SPECIALIST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "match_score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "How strongly does this building match your assigned class? 0=definitely not, 10=definitely yes.",
+        },
+        "verdict": {
+            "type": "string",
+            "enum": ["yes", "possible", "no"],
+            "description": "Does this building belong to your assigned class?",
+        },
+        "supporting_evidence": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "2-3 visual observations that support your class",
+        },
+        "counter_evidence": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "1-2 visual observations that argue against your class (or empty if none)",
+        },
+    },
+    "required": ["match_score", "verdict", "supporting_evidence", "counter_evidence"],
+}
+
+_SPECIALIST_SCHEMA_SUFFIX = (
+    "Respond with JSON matching this schema:\n"
+    f"{json.dumps(SPECIALIST_SCHEMA, indent=2)}\n\n"
+    "Return only valid JSON, no other text."
+)
+
+NO_DAMAGE_SPECIALIST_PROMPT = """You are a damage detection specialist. Your ONLY job is to determine if this building has NO structural damage.
+
+Evidence for no-damage:
+- Roof shape, color, and texture match BEFORE image — same geometric form
+- Walls appear intact and unchanged
+- No missing roof sections, no exposed interior, no collapsed walls
+- Color change from smoke/ash is acceptable — structure must be geometrically intact
+- Building still looks like a building, not rubble
+
+Evidence against no-damage (means damage exists):
+- Any roof material visibly missing or displaced
+- Any wall collapse or breach
+- Footprint shape changed between BEFORE and AFTER
+
+Score 10 if the building is clearly pristine and unchanged. Score 0 if you can clearly see structural damage."""
+
+MINOR_DAMAGE_SPECIALIST_PROMPT = """You are a damage detection specialist. Your ONLY job is to determine if this building has MINOR structural damage.
+
+Evidence for minor-damage:
+- Building is clearly still standing with most of its structure intact
+- Roof shows scorch marks, partial discoloration, or small missing patches (less than 25% of roof)
+- Debris nearby but not covering the footprint
+- Some surface-level changes but walls and most of the roof are present
+- You can see the building is damaged but it would still be structurally safe
+
+Evidence against minor-damage:
+- No visible damage at all → no-damage instead
+- More than 25% of roof missing → major-damage instead
+- Walls collapsed or building mostly gone → major or destroyed instead
+
+Score 10 if the building clearly shows minor superficial damage. Score 0 if it is clearly undamaged or far more severely damaged."""
+
+MAJOR_DAMAGE_SPECIALIST_PROMPT = """You are a damage detection specialist. Your ONLY job is to determine if this building has MAJOR structural damage.
+
+Evidence for major-damage:
+- Large sections of roof clearly missing (more than 50% of roof gone)
+- Partial wall collapse visible on one or more sides
+- Interior of building exposed and visible from above through the roof
+- Heavy burn/charring across most of the footprint
+- Building footprint is still recognizable — you can still see where it stood — but it is severely compromised
+
+Evidence against major-damage:
+- Roof is mostly intact → minor-damage or no-damage instead
+- Building has completely vanished (only foundation/ash) → destroyed instead
+- Only superficial discoloration → minor-damage instead
+
+Score 10 if the building clearly shows major structural damage with most roof gone but footprint still visible. Score 0 if clearly undamaged, only superficially damaged, or completely gone."""
+
+DESTROYED_SPECIALIST_PROMPT = """You are a damage detection specialist. Your ONLY job is to determine if this building is COMPLETELY DESTROYED — meaning NO structure remains.
+
+STRICT SCORING RULES — read carefully before scoring:
+
+Score 0–2 (definitely NOT destroyed) if ANY of these are true:
+- Any roof material is still visible over the footprint (even partially)
+- Walls are still standing on any side
+- The building outline is still recognizable as a structure
+- The footprint looks similar in shape to the BEFORE image
+- You can see the building still exists as a building
+
+Score 3–5 (probably not destroyed) if:
+- There is heavy damage but remnants of structure remain
+- You are uncertain — lean toward NOT destroyed
+
+Score 7–9 (likely destroyed) ONLY if ALL of these are true:
+- No roof material visible anywhere over the footprint
+- No standing walls visible
+- Footprint has been replaced by rubble, ash, or bare foundation slab
+- Building shape from BEFORE is no longer recognizable as a structure
+
+Score 10 (certainly destroyed) ONLY if:
+- Only a bare concrete foundation slab remains, OR
+- Complete ash or rubble field with no structure whatsoever
+
+CRITICAL: If you can still see the building as a building — even heavily damaged — score 0–3.
+A building with a partially collapsed roof is NOT destroyed. Score it 0–3.
+When in doubt, score LOW. False positives (scoring high when not destroyed) are much worse than false negatives."""
+
+SUPERVISOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "specialist_scores": {
+            "type": "object",
+            "description": "Summary of each specialist's match_score",
+            "properties": {
+                "no_damage": {"type": "integer"},
+                "minor_damage": {"type": "integer"},
+                "major_damage": {"type": "integer"},
+                "destroyed": {"type": "integer"},
+            },
+        },
+        "reasoning": {
+            "type": "string",
+            "description": "1-2 sentences explaining which specialists you agreed/disagreed with and why",
+        },
+        "damage_level": {
+            "type": "string",
+            "enum": ["no-damage", "minor-damage", "major-damage", "destroyed"],
+            "description": "Final damage classification",
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+    },
+    "required": ["specialist_scores", "reasoning", "damage_level", "confidence"],
+}
+
+_SUPERVISOR_SCHEMA_SUFFIX = (
+    "Respond with JSON matching this schema:\n"
+    f"{json.dumps(SUPERVISOR_SCHEMA, indent=2)}\n\n"
+    "Return only valid JSON, no other text."
+)
+
+SUPERVISOR_SYSTEM_PROMPT = """You are a senior damage assessment supervisor. You have access to the original pre/post satellite images AND reports from 4 specialist agents who each evaluated the same building for a specific damage class.
+
+Your job is to visually inspect the images yourself AND review all 4 specialist reports to make the FINAL damage classification. Trust your own direct visual assessment — override specialist reports if the images clearly contradict them.
+
+Decision rules:
+1. Start from the LESS SEVERE classes and escalate only when evidence is clear.
+2. Choose no-damage if no-damage score ≥ 7 AND destroyed score < 6.
+3. Choose minor-damage if minor score ≥ 6 AND the building is clearly still standing.
+4. Choose major-damage if major score ≥ 6 AND roof is clearly substantially missing.
+5. Choose destroyed ONLY if destroyed score ≥ 8 AND major score < 6 — meaning the building has truly vanished, not just heavily damaged.
+6. When destroyed and major-damage scores are close (within 2 points), ALWAYS prefer major-damage.
+7. When in doubt between any two classes, pick the LESS SEVERE option.
+
+Key principle: A damaged but standing building is NOT destroyed. Only choose destroyed if the building structure has completely disappeared.
+
+Always respond with valid JSON matching the provided schema."""
+
+
+def specialist_prompt(specialist_system: str) -> str:
+    """Build the user-turn prompt for a class specialist."""
+    return _IMAGE_LAYOUT_2 + _SPECIALIST_SCHEMA_SUFFIX
+
+
+def supervisor_prompt(specialist_reports: dict[str, dict]) -> str:
+    """Build the supervisor user-turn prompt from the 4 specialist reports."""
+    reports_str = json.dumps(specialist_reports, indent=2)
+    return (
+        "The pre/post satellite images are provided above for your direct visual inspection.\n\n"
+        "Here are the 4 specialist reports for this building:\n\n"
+        f"```json\n{reports_str}\n```\n\n"
+        "Visually inspect the images AND review the specialist reports, then make your final damage classification.\n\n"
+        + _SUPERVISOR_SCHEMA_SUFFIX
+    )
+
+
+def parse_specialist_response(response_text: str) -> dict:
+    """Parse a specialist agent response."""
+    import re
+    text = response_text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        data = json.loads(text)
+        data.setdefault("match_score", 0)
+        data.setdefault("verdict", "no")
+        data.setdefault("supporting_evidence", [])
+        data.setdefault("counter_evidence", [])
+        return data
+    except (json.JSONDecodeError, ValueError):
+        return {"match_score": 0, "verdict": "no", "supporting_evidence": [], "counter_evidence": [], "parse_error": response_text[:100]}
+
+
+def parse_supervisor_response(response_text: str) -> dict:
+    """Parse the supervisor agent response."""
+    import re
+    text = response_text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        data = json.loads(text)
+        valid = {"no-damage", "minor-damage", "major-damage", "destroyed"}
+        if data.get("damage_level") not in valid:
+            data["damage_level"] = "no-damage"
+            data["parse_error"] = "invalid damage_level"
+        data.setdefault("confidence", "low")
+        data.setdefault("reasoning", "")
+        data.setdefault("parse_error", "")
+        return data
+    except (json.JSONDecodeError, ValueError) as e:
+        return {"damage_level": "no-damage", "confidence": "low", "reasoning": "", "parse_error": str(e)}
 
 
 def few_shot_examples() -> list[dict[str, str]]:
@@ -682,6 +1024,345 @@ def parse_boundary_v1_response(response_text: str) -> dict[str, Any]:
             "ev_change_localized_to_building": False,
             "ev_surroundings_only_change":     False,
             "parse_error":                     str(exc),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Stage 0 — binary damage detector (damaged vs intact)
+# Runs before the full L1+L2 hierarchy. If "no damage", skip hierarchy entirely.
+# ---------------------------------------------------------------------------
+
+STAGE0_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "building_damaged": {
+            "type": "string",
+            "enum": ["yes", "no", "unclear"],
+            "description": "Is there ANY visible structural or surface damage to the target building itself?",
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+        "evidence": {
+            "type": "string",
+            "description": "1-2 sentence observation. What specifically did you compare between BEFORE and AFTER?",
+        },
+    },
+    "required": ["building_damaged", "confidence", "evidence"],
+}
+
+_STAGE0_SCHEMA_SUFFIX = (
+    "Respond with JSON matching this schema:\n"
+    f"{json.dumps(STAGE0_SCHEMA, indent=2)}\n\n"
+    "Return only valid JSON, no other text."
+)
+
+STAGE0_SYSTEM_PROMPT = """You are a binary damage detection agent. Your ONLY job is to answer ONE question:
+
+  "Does the target building show ANY visible change or damage between the BEFORE and AFTER images?"
+
+STRICT RULES:
+- Judge the TARGET BUILDING ONLY — the one outlined in red. Ignore ALL surrounding land, vegetation, and other structures.
+- Burned grass, scorched earth, or ash fields AROUND the building are NOT building damage.
+- Answer "no" if the building's roof shape, color, and footprint are geometrically unchanged between BEFORE and AFTER.
+- Answer "yes" if you can see ANY of: missing roof material, collapsed walls, exposed interior, changed footprint shape, heavy charring on the building itself.
+- Answer "unclear" ONLY if the crop is too small or blurry to make any comparison at all.
+- Use "no" confidently if the building shape matches BEFORE — minor color differences from smoke/ash on the building exterior alone are NOT structural damage.
+
+Key visual anchors:
+- NO DAMAGE: building outline in AFTER matches BEFORE exactly. Roof still present as a solid shape.
+- DAMAGED: visible holes in roof, collapsed sections, missing walls, or the building outline has changed.
+
+When in doubt between "no" and "unclear": choose "no" if you can see the building at all and it looks similar.
+When in doubt between "yes" and "unclear": choose "yes" to avoid missing real damage.
+
+Always respond with valid JSON matching the provided schema."""
+
+
+def stage0_prompt(scene_description: str = "") -> str:
+    """User-turn prompt for Stage 0 binary damage detector."""
+    scene_block = ""
+    if scene_description:
+        scene_block = (
+            f"SCENE-SPECIFIC CONTEXT:\n{scene_description}\n\n"
+            "Use this to understand what INTACT buildings look like in this specific scene.\n\n"
+        )
+    return (
+        _IMAGE_LAYOUT_2
+        + scene_block
+        + "Compare the BEFORE and AFTER images of the outlined building.\n"
+        "Answer: is there any visible damage or change on the building itself?\n\n"
+        + _STAGE0_SCHEMA_SUFFIX
+    )
+
+
+def parse_stage0_response(response_text: str) -> dict:
+    """Parse Stage 0 binary response."""
+    import re
+    text = response_text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        data = json.loads(text)
+        if data.get("building_damaged") not in ("yes", "no", "unclear"):
+            data["building_damaged"] = "unclear"
+        data.setdefault("confidence", "low")
+        data.setdefault("evidence", "")
+        data.setdefault("parse_error", "")
+        return data
+    except (json.JSONDecodeError, ValueError) as e:
+        return {"building_damaged": "unclear", "confidence": "low", "evidence": "", "parse_error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Level-2 class specialists (receive L1 evidence report + visual crops)
+# ---------------------------------------------------------------------------
+
+L2_NO_DAMAGE_SPECIALIST_PROMPT = """You are a Level-2 damage specialist. Your ONLY job: determine if this building has NO structural damage.
+
+You receive pre/post satellite image crops AND a structured Level-1 Scene Worker report with explicit damage indicator findings.
+
+Evidence for NO DAMAGE:
+- structure_still_standing: yes
+- roof_over_half_missing: no
+- wall_collapse_visible: no
+- footprint_replaced_by_rubble: no
+- surface_damage_only: yes OR no visible surface damage
+- Visually: building matches pre-disaster appearance
+
+Score 10 if the L1 report shows all indicators negative AND the images confirm no visible change.
+Score 0 if any structural damage indicator is "yes"."""
+
+L2_MINOR_DAMAGE_SPECIALIST_PROMPT = """You are a Level-2 damage specialist. Your ONLY job: determine if this building has MINOR structural damage.
+
+You receive pre/post satellite image crops AND a structured Level-1 Scene Worker report with explicit damage indicator findings.
+
+Evidence for MINOR DAMAGE:
+- structure_still_standing: yes (must be standing)
+- surface_damage_only: yes (only surface-level change)
+- roof_over_half_missing: no (roof mostly intact — less than 50% affected)
+- wall_collapse_visible: no (walls intact)
+- footprint_replaced_by_rubble: no (footprint recognizable)
+- Visually: scorch marks, small dark patches, minor debris — but building structure preserved
+
+Score 10 if standing building with only surface damage indicated.
+Score 0 if no damage at all (no-damage), OR if major structural loss is present (>50% roof gone or wall collapse)."""
+
+L2_MAJOR_DAMAGE_SPECIALIST_PROMPT = """You are a Level-2 damage specialist. Your ONLY job: determine if this building has MAJOR structural damage — severe damage where the building footprint is still recognizable but substantially compromised.
+
+You receive pre/post satellite image crops AND a structured Level-1 Scene Worker report with explicit damage indicator findings.
+
+THE CRITICAL MAJOR-DAMAGE SIGNATURE:
+  STRONG evidence for major-damage (score 8-10) when:
+    roof_over_half_missing: yes    ← roof is substantially gone
+    structure_still_standing: yes  ← building still stands as a recognizable structure
+    footprint_replaced_by_rubble: no  ← footprint NOT completely erased
+
+  This is the key pattern that distinguishes major-damage from destroyed:
+  The building is severely damaged but still exists as a recognizable structure.
+
+  WEAK or NO evidence (score 0-3) when:
+    roof_over_half_missing: no → probably minor or no-damage
+    footprint_replaced_by_rubble: yes → probably destroyed
+    structure_still_standing: no → probably destroyed
+
+Visually: Look for large holes/gaps in the roof, exposed building interior, partial wall collapse — but the building footprint is still identifiable from BEFORE.
+
+Score 10 if roof >50% gone AND structure still standing as a recognizable building.
+Score 0 if building is pristine/lightly damaged, OR if completely gone to rubble."""
+
+L2_DESTROYED_SPECIALIST_PROMPT = """You are a Level-2 damage specialist. Your ONLY job: determine if this building is COMPLETELY DESTROYED — no structure remains at all.
+
+You receive pre/post satellite image crops AND a structured Level-1 Scene Worker report with explicit damage indicator findings.
+
+DESTROYED SIGNATURE — ALL of these must be true for a high score:
+  footprint_replaced_by_rubble: yes  ← footprint erased (rubble/ash/bare foundation slab)
+  structure_still_standing: no       ← NO structure remaining
+  roof_over_half_missing: yes        ← all roof gone
+  wall_collapse_visible: yes         ← walls fully collapsed
+
+SCORING RULES:
+  Score 9-10: ALL four indicators above are "yes" AND images confirm complete loss
+  Score 6-8: Most indicators point to destruction but one is "unclear"
+  Score 0-3: structure_still_standing=yes OR footprint_replaced_by_rubble=no
+
+CRITICAL: structure_still_standing=yes means NOT destroyed — score 0-3 regardless of other damage.
+A building with a partially collapsed roof is NOT destroyed.
+
+Visually: Look for bare concrete slab (gray rectangle with no structure), or complete ash/rubble field where the building stood in BEFORE."""
+
+_L2_SPECIALIST_SCHEMA_SUFFIX = (
+    "Respond with JSON matching this schema:\n"
+    f"{json.dumps(SPECIALIST_SCHEMA, indent=2)}\n\n"
+    "Return only valid JSON, no other text."
+)
+
+L2_SUPERVISOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "l1_assessment": {
+            "type": "string",
+            "description": "The L1 worker's initial_assessment value",
+        },
+        "l2_scores": {
+            "type": "object",
+            "description": "L2 specialist match_scores",
+            "properties": {
+                "no_damage":    {"type": "integer"},
+                "minor_damage": {"type": "integer"},
+                "major_damage": {"type": "integer"},
+                "destroyed":    {"type": "integer"},
+            },
+        },
+        "key_decision": {
+            "type": "string",
+            "description": "1-2 sentences explaining how you reconciled L1 indicators, L2 scores, and visual evidence",
+        },
+        "damage_level": {
+            "type": "string",
+            "enum": ["no-damage", "minor-damage", "major-damage", "destroyed"],
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+    },
+    "required": ["l1_assessment", "l2_scores", "key_decision", "damage_level", "confidence"],
+}
+
+_L2_SUPERVISOR_SCHEMA_SUFFIX = (
+    "Respond with JSON matching this schema:\n"
+    f"{json.dumps(L2_SUPERVISOR_SCHEMA, indent=2)}\n\n"
+    "Return only valid JSON, no other text."
+)
+
+L2_SUPERVISOR_SYSTEM_PROMPT = """You are a senior damage assessment supervisor at Level 2 of the hierarchical system.
+
+You have access to:
+1. Pre/post satellite image crops of the target building (your own visual inspection)
+2. A structured Level-1 Scene Worker report (explicit damage indicator checklist)
+3. Four Level-2 specialist reports (one per damage class)
+
+DECISION PROCESS — use this order:
+
+Step 1 — Apply the L1 indicator decision tree (strict — requires explicit "yes", not "unclear"):
+  DESTROYED path:   footprint_replaced_by_rubble=yes AND structure_still_standing=no AND roof_over_half_missing=yes
+    → All three must be explicit "yes" (not "unclear") → destroyed
+    → If ANY of the three is "unclear": fall through to Step 2 (use L2 scores)
+
+  MAJOR path:       roof_over_half_missing=yes AND structure_still_standing=yes (or unclear)
+    → If roof is clearly >50% gone but building still has recognizable structure: major-damage
+    → structure_still_standing=unclear → lean toward major, not destroyed
+
+  MINOR path:       surface_damage_only=yes AND structure_still_standing=yes AND roof_over_half_missing=no
+    → Only surface changes, building intact: minor-damage
+
+  NO-DAMAGE path:   all indicators are "no" or "unclear" AND no change visible → no-damage
+
+Step 2 — When L1 path is unclear, use L2 specialist scores. Highest score among the 4 classes wins.
+
+Step 3 — Visually verify: if images clearly contradict your decision, override and explain.
+
+ANTI-BIAS RULES (prevent destroyed over-prediction — the #1 accuracy killer):
+  - structure_still_standing=unclear → NEVER choose destroyed; prefer major-damage instead
+  - footprint_replaced_by_rubble=unclear → NEVER choose destroyed; prefer major-damage instead
+  - If destroyed_score and major_score are within 3 points: prefer major-damage
+  - major_score ≥ 3 AND (standing=unclear OR rubble=unclear): choose major-damage, not destroyed
+  - Never default to no-damage if ANY indicator is explicitly "yes"
+
+Always respond with valid JSON matching the provided schema."""
+
+
+def l2_specialist_user_prompt(worker_report: dict, scene_description: str = "", cnn_probs: dict | None = None) -> str:
+    """User-turn for an L2 specialist: embeds the L1 evidence report + image instructions + schema."""
+    ind = worker_report.get("damage_indicators", {})
+    changes = worker_report.get("change_observations", [])
+    scene_block = ""
+    if scene_description:
+        scene_block = (
+            f"SCENE-SPECIFIC CONTEXT:\n{scene_description}\n\n"
+            "Use this context to correctly interpret what buildings in this scene look like when undamaged vs damaged.\n\n"
+        )
+    report_block = (
+        "LEVEL-1 SCENE WORKER REPORT:\n"
+        f"  Initial assessment: {worker_report.get('initial_assessment', 'unknown')}\n"
+        f"  Evidence summary: {worker_report.get('evidence_summary', '')}\n"
+        f"  Change observations: {'; '.join(changes)}\n"
+        "  Damage indicators:\n"
+        f"    roof_over_half_missing:      {ind.get('roof_over_half_missing', 'unclear')}\n"
+        f"    wall_collapse_visible:       {ind.get('wall_collapse_visible', 'unclear')}\n"
+        f"    structure_still_standing:    {ind.get('structure_still_standing', 'unclear')}\n"
+        f"    footprint_replaced_by_rubble:{ind.get('footprint_replaced_by_rubble', 'unclear')}\n"
+        f"    surface_damage_only:         {ind.get('surface_damage_only', 'unclear')}\n\n"
+        "Pre/post disaster images of the target building are provided above.\n"
+        "Use BOTH the visual evidence AND the Level-1 report to score your class.\n\n"
+    )
+    cnn_block = _cnn_block(cnn_probs) if cnn_probs else ""
+    return _IMAGE_LAYOUT_2 + scene_block + cnn_block + report_block + _L2_SPECIALIST_SCHEMA_SUFFIX
+
+
+def l2_supervisor_user_prompt(worker_report: dict, specialist_reports: dict, scene_description: str = "", cnn_probs: dict | None = None) -> str:
+    """User-turn for L2 supervisor: L1 report + L2 specialist verdicts + image instructions + schema."""
+    ind = worker_report.get("damage_indicators", {})
+    l1_block = (
+        "LEVEL-1 SCENE WORKER REPORT:\n"
+        f"  Initial assessment: {worker_report.get('initial_assessment', 'unknown')}\n"
+        f"  Evidence summary: {worker_report.get('evidence_summary', '')}\n"
+        "  Damage indicators:\n"
+        f"    roof_over_half_missing:      {ind.get('roof_over_half_missing', 'unclear')}\n"
+        f"    wall_collapse_visible:       {ind.get('wall_collapse_visible', 'unclear')}\n"
+        f"    structure_still_standing:    {ind.get('structure_still_standing', 'unclear')}\n"
+        f"    footprint_replaced_by_rubble:{ind.get('footprint_replaced_by_rubble', 'unclear')}\n"
+        f"    surface_damage_only:         {ind.get('surface_damage_only', 'unclear')}\n\n"
+    )
+    l2_block = (
+        "LEVEL-2 SPECIALIST REPORTS:\n"
+        f"```json\n{json.dumps(specialist_reports, indent=2)}\n```\n\n"
+    )
+    scene_block = ""
+    if scene_description:
+        scene_block = (
+            f"SCENE-SPECIFIC CONTEXT (auto-generated from pre-disaster analysis):\n{scene_description}\n\n"
+            "Use this context to interpret whether surface changes in the images are typical for this scene or indicate real damage.\n\n"
+        )
+    cnn_block = _cnn_block(cnn_probs) if cnn_probs else ""
+    return (
+        "Pre/post satellite images are provided above for your direct visual inspection.\n\n"
+        + scene_block
+        + cnn_block
+        + l1_block
+        + l2_block
+        + "Make your final classification using the L1 indicators, L2 scores, scene context, and your visual inspection.\n\n"
+        + _L2_SUPERVISOR_SCHEMA_SUFFIX
+    )
+
+
+def parse_l2_supervisor_response(response_text: str) -> dict:
+    """Parse the L2 supervisor JSON response."""
+    import re
+    text = response_text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        data = json.loads(text)
+        valid = {"no-damage", "minor-damage", "major-damage", "destroyed"}
+        if data.get("damage_level") not in valid:
+            data["damage_level"] = "no-damage"
+            data["parse_error"] = "invalid damage_level"
+        data.setdefault("confidence", "low")
+        data.setdefault("key_decision", "")
+        data.setdefault("l1_assessment", "")
+        data.setdefault("l2_scores", {})
+        data.setdefault("parse_error", "")
+        # Alias key_decision → key_evidence for CSV compatibility
+        data["key_evidence"] = data["key_decision"]
+        return data
+    except (json.JSONDecodeError, ValueError) as e:
+        return {
+            "damage_level": "no-damage", "confidence": "low",
+            "key_decision": "", "key_evidence": "",
+            "l1_assessment": "", "l2_scores": {}, "parse_error": str(e),
         }
 
 

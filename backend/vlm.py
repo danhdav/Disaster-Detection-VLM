@@ -27,10 +27,19 @@ from dataparser import (
     presigned_scene_image_urls,
 )
 from disaster_bench.models.damage.vlm_prompts import (
-    SYSTEM_PROMPT,
+    get_system_prompt,
     ungrounded_prompt,
     parse_vlm_response,
+    parse_l2_supervisor_response,
 )
+from eval_vlm import call_l2_hierarchy, load_scene_overrides
+
+# Load Round-6 scene-specific corrective prompts once at startup
+_SCENE_OVERRIDES: dict[str, str] = {}
+try:
+    _SCENE_OVERRIDES = load_scene_overrides()
+except Exception as _e:
+    print(f"[vlm] Warning: could not load scene overrides: {_e}")
 
 app = APIRouter(tags=["vlm"])
 
@@ -65,10 +74,12 @@ def _crop_building_b64(
     canvas_h: int = 1024,
     pad_fraction: float = 0.25,
     min_pad: int = 16,
+    min_output_size: int = 224,
 ) -> str | None:
     """
     Crop a building from a full-tile numpy image, draw a red polygon outline
     around the building footprint, and return a base64 PNG data URL.
+    Small crops are upscaled to min_output_size so the VLM can see detail.
     Returns None on any error so callers can fall back gracefully.
     """
     from disaster_bench.data.polygons import parse_wkt_polygon
@@ -107,10 +118,75 @@ def _crop_building_b64(
     draw.polygon(outline_coords, outline=(255, 0, 0))
     draw.polygon(outline_coords, outline=(255, 80, 80))  # second pass for visibility
 
+    # Upscale small crops so the VLM can see detail (tiny buildings are ~50px)
+    cw, ch = crop_img.size
+    if max(cw, ch) < min_output_size:
+        scale = min_output_size / max(cw, ch)
+        new_w, new_h = max(1, int(cw * scale)), max(1, int(ch * scale))
+        crop_img = crop_img.resize((new_w, new_h), PILImage.LANCZOS)
+
     buf = _io.BytesIO()
     crop_img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
     return f"data:image/png;base64,{b64}"
+
+
+def _humanize_evidence(raw: str) -> list[str]:
+    """Strip internal pipeline jargon and return short, user-readable bullet points.
+
+    Removes L1/L2 references, indicator names, scores, and boilerplate prefixes
+    like "Visual inspection confirms" — keeping only the core visual observation.
+    """
+    import re
+
+    # Patterns that mark a whole sentence as purely technical (drop entirely)
+    _PURELY_TECHNICAL = [
+        r"\bL[12]\b.*\bindicators?\b",
+        r"\bL[12]\b.*\bscore[s]?\b",
+        r"=(?:yes|no|unclear)",
+        r"\boverwhelm",
+        r"\banti.bias\b",
+        r"\bgate\b.*\b(?:pass|fail)",
+        r"\bfall[s]?\s+through\b",
+        r"\bStep\s+\d\b",
+    ]
+
+    def _clean_sentence(s: str) -> str:
+        # Remove trailing ", and the L2 … ." clause (mixed sentences)
+        s = re.sub(r"[,;]?\s*and\s+(?:the\s+)?L[12][^.]*\.?", "", s, flags=re.IGNORECASE)
+        # Remove leading boilerplate prefixes
+        s = re.sub(r"^[Vv]isual inspection confirms(?: that)?\s+", "", s)
+        s = re.sub(
+            r"^(?:The\s+)?(?:post-disaster\s+)?[Ii]mage(?:ry)?\s+(?:shows?|reveals?|confirms?)\s+(?:that\s+)?",
+            "", s
+        )
+        # Remove indicator=value pairs and their parenthesised lists
+        s = re.sub(r"\([^)]*=(?:yes|no|unclear)[^)]*\)", "", s)
+        s = re.sub(r"\b\w+=(?:yes|no|unclear)\b", "", s)
+        # Remove any remaining standalone L2/L1 clauses
+        s = re.sub(r",?\s*(?:the\s+)?L[12][^,\.]*[,\.]?", "", s, flags=re.IGNORECASE)
+        # Clean up whitespace and punctuation artifacts
+        s = re.sub(r"\s+", " ", s)
+        s = re.sub(r"^\s*[,;\.]+\s*", "", s)
+        s = s.strip().rstrip(".,;")
+        # Drop if still purely technical after cleaning
+        if any(re.search(p, s, re.IGNORECASE) for p in _PURELY_TECHNICAL):
+            return ""
+        return s
+
+    # Split into sentences, clean each, discard empties
+    sentences = re.split(r"(?<=[.!?])\s+", raw.strip())
+    results = []
+    for sent in sentences:
+        cleaned = _clean_sentence(sent.strip())
+        if cleaned and len(cleaned) > 10:
+            # Further split on semicolons within a sentence
+            for part in cleaned.split(";"):
+                part = part.strip().rstrip(".,;")
+                if len(part) > 8:
+                    results.append(part)
+
+    return results if results else [raw.strip()]
 
 
 def _error_response(status_code: int, error: str) -> JSONResponse:
@@ -146,6 +222,71 @@ def _append_image_content(
     content.append({"type": "image_url", "image_url": {"url": image_url}})
 
 
+def _make_masked_diff_b64(
+    pre_arr: np.ndarray,
+    post_arr: np.ndarray,
+    wkt: str,
+    canvas_w: int = 1024,
+    canvas_h: int = 1024,
+    amplify: int = 6,
+) -> str | None:
+    """
+    Polygon-masked pixel-difference heatmap cropped to the building region.
+    Everything outside the building polygon is blacked out, so the VLM sees
+    only structural change at the footprint rather than surrounding vegetation/ash.
+    Returns a base64 PNG data URL, or None on any error.
+    """
+    from disaster_bench.data.polygons import parse_wkt_polygon
+
+    try:
+        img_h, img_w = pre_arr.shape[:2]
+        sx, sy = img_w / canvas_w, img_h / canvas_h
+
+        poly = parse_wkt_polygon(wkt)
+        if poly is None:
+            return None
+        coords_px = [(c[0] * sx, c[1] * sy) for c in poly.exterior.coords]
+        xs = [c[0] for c in coords_px]
+        ys = [c[1] for c in coords_px]
+        x1, y1 = max(0, int(min(xs))), max(0, int(min(ys)))
+        x2, y2 = min(img_w, int(max(xs))), min(img_h, int(max(ys)))
+        if x2 - x1 <= 0 or y2 - y1 <= 0:
+            return None
+
+        pad = max(int(0.25 * max(x2 - x1, y2 - y1)), 16)
+        cx1, cy1 = max(0, x1 - pad), max(0, y1 - pad)
+        cx2, cy2 = min(img_w, x2 + pad), min(img_h, y2 + pad)
+
+        pre_crop  = pre_arr[cy1:cy2, cx1:cx2].astype(np.int32)
+        post_crop = post_arr[cy1:cy2, cx1:cx2].astype(np.int32)
+        diff = np.clip(np.abs(post_crop - pre_crop) * amplify, 0, 255).astype(np.uint8)
+        diff_img = PILImage.fromarray(diff)
+
+        # Black out everything outside the building polygon
+        poly_local = [(x - cx1, y - cy1) for x, y in coords_px]
+        mask = PILImage.new("L", diff_img.size, 0)
+        ImageDraw.Draw(mask).polygon(poly_local, fill=255)
+        black = PILImage.new("RGB", diff_img.size, (0, 0, 0))
+        diff_masked = PILImage.composite(diff_img, black, mask)
+
+        # White outline so the VLM can see the polygon boundary
+        ImageDraw.Draw(diff_masked).polygon(poly_local, outline=(255, 255, 255))
+
+        # Upscale if tiny
+        cw, ch = diff_masked.size
+        if max(cw, ch) < 224:
+            scale = 224 / max(cw, ch)
+            diff_masked = diff_masked.resize(
+                (max(1, int(cw * scale)), max(1, int(ch * scale))), PILImage.LANCZOS
+            )
+
+        buf = _io.BytesIO()
+        diff_masked.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return None
+
+
 # Call OpenRouter with the prompt and return the response
 def openrouter_analysis(
     # Required parameters for the VLM
@@ -156,6 +297,7 @@ def openrouter_analysis(
     scene_id: str,
     model_name: str,
     full_tile: bool = False,
+    diff_b64: str | None = None,  # polygon-masked diff heatmap, computed by caller
 ) -> str:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
@@ -163,7 +305,7 @@ def openrouter_analysis(
 
     # User message: benchmark structured prompt + context metadata + images
     user_prompt = (
-        ungrounded_prompt(full_tile=full_tile)
+        ungrounded_prompt(full_tile=full_tile, diff_overlay=bool(diff_b64))
         + f"\nDisaster: {disaster_id} | Scene: {scene_id}\n"
     )
 
@@ -172,11 +314,13 @@ def openrouter_analysis(
     # Append pre/post image content blocks to the prompt.
     _append_image_content(content, "Pre-disaster", pre_data_url)
     _append_image_content(content, "Post-disaster", post_data_url)
+    if diff_b64:
+        _append_image_content(content, "Change heatmap (brighter = more change, polygon-masked)", diff_b64)
 
     payload = {
         "model": model_name,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_system_prompt(scene_id)},
             {"role": "user",   "content": content},
         ],
         "temperature": 0,
@@ -342,27 +486,33 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
                     print("VLM: sending building crops with red outline.")
                 else:
                     print("VLM: crop produced None — falling back to full tile.")
+                    pre_arr = post_arr = None
             except Exception as exc:
                 print(f"VLM crop failed (full tile fallback): {exc}")
         else:
             print("VLM: no xy WKT found — sending full tile images.")
 
+    # Compute polygon-masked diff heatmap when a crop was successfully made
+    diff_b64: str | None = None
+    if crop_succeeded and pre_arr is not None and post_arr is not None and xy_wkt:
+        diff_b64 = _make_masked_diff_b64(pre_arr, post_arr, xy_wkt, canvas_w, canvas_h)
+        if diff_b64:
+            print("VLM: polygon-masked diff heatmap computed.")
+
     try:
-        analysis_text = openrouter_analysis(
-            feature=feature,
-            pre_data_url=pre_data_url,
-            post_data_url=post_data_url,
-            disaster_id=disaster_id,
-            scene_id=scene_id,
-            model_name=model_name,
-            full_tile=not crop_succeeded,
+        hierarchy_model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+        scene_description = _SCENE_OVERRIDES.get(scene_id, "")
+        raw_result, _latency, _tokens = call_l2_hierarchy(
+            pre_data_url,
+            post_data_url,
+            hierarchy_model,
+            tile_id=scene_id,
+            scene_description=scene_description,
+            use_stage0=True,
         )
-    except requests.RequestException as exc:
-        return _error_response(
-            status_code=502, error=f"OpenRouter request failed: {exc}"
-        )
-    except Exception as exc:  # pragma: no cover - runtime guard
-        return _error_response(status_code=500, error=str(exc))
+        analysis_text = raw_result
+    except Exception as exc:
+        return _error_response(status_code=500, error=f"Hierarchy analysis failed: {exc}")
 
     try:
         analysis_document_id = persist_analysis_via_fire(
@@ -383,7 +533,7 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             status_code=500, error=f"Persisting analysis via /fire failed: {exc}"
         )
 
-    parsed = parse_vlm_response(analysis_text)
+    parsed = parse_l2_supervisor_response(analysis_text)
 
     # If parse_vlm_response fell back to its error dict, "raw_response" is present.
     # Return a 502 so the caller knows the VLM output was unparseable.
@@ -396,9 +546,9 @@ def analyze_with_openrouter(body: AnalyzeRequest) -> dict[str, Any] | JSONRespon
             ),
         )
 
-    # Build a clean, human-readable evidence list (split CSV string back to list)
+    # Build a clean, human-readable evidence list
     raw_evidence = parsed.get("key_evidence", "") or ""
-    evidence_list = [e.strip() for e in raw_evidence.split(";") if e.strip()]
+    evidence_list = _humanize_evidence(raw_evidence)
 
     return {
         "status": "ok",
