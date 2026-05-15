@@ -35,10 +35,14 @@ try:
     disaster_collection = chroma_client.get_or_create_collection(
         name="disaster_assessments"
     )
+    articles_collection = chroma_client.get_or_create_collection(
+        name="disaster_articles"
+    )
     logger.info("ChromaDB initialized successfully.")
 except Exception as e:
     logger.error(f"Failed to initialize ChromaDB: {e}")
     disaster_collection = None
+    articles_collection = None
 
 chat_sessions_collection_name = "chat_sessions"
 chat_sessions_collection: Collection | None = (
@@ -157,9 +161,90 @@ def _clear_chat_state_on_startup() -> None:
         )
 
 
+def _auto_sync_chroma() -> None:
+    """Populate ChromaDB collections from MongoDB and S3 if they are empty."""
+    try:
+        if disaster_collection is not None and disaster_collection.count() == 0:
+            logger.info("disaster_assessments is empty — running MongoDB sync...")
+            import re as _re
+            from dataparser import labels_collection as _labels_col, mongo_db_name as _db_name
+            from dataparser import mongo_client as _mc
+            _col = _mc[_db_name][os.getenv("MONGO_COLLECTION_NAME", "labels")]
+            cursor = _col.find({"metadata.img_name": {"$regex": "post", "$options": "i"}})
+            documents, metadatas, ids = [], [], []
+            for doc in cursor:
+                img_name = doc["metadata"].get("img_name")
+                if not img_name:
+                    continue
+                disaster_type = doc["metadata"].get("disaster_type", "unknown")
+                damage_counts = {"destroyed": 0, "major-damage": 0, "minor-damage": 0, "no-damage": 0}
+                for b in doc.get("features", {}).get("xy", []):
+                    subtype = b["properties"].get("subtype", "no-damage")
+                    if subtype in damage_counts:
+                        damage_counts[subtype] += 1
+                center_lat, center_lon = 0.0, 0.0
+                try:
+                    wkt = doc["features"]["lng_lat"][0]["wkt"]
+                    coords = _re.findall(r"(-?\d+\.\d+)\s+(-?\d+\.\d+)", wkt)
+                    if coords:
+                        center_lon = sum(float(c[0]) for c in coords) / len(coords)
+                        center_lat = sum(float(c[1]) for c in coords) / len(coords)
+                except (KeyError, IndexError):
+                    pass
+                total = sum(damage_counts.values())
+                text = (
+                    f"Image Scene ID: {img_name}\n"
+                    f"Disaster Event: {disaster_type}\n"
+                    f"Location: Lat {center_lat:.4f}, Lon {center_lon:.4f}\n"
+                    f"Summary Assessment: {damage_counts['destroyed']} destroyed, "
+                    f"{damage_counts['major-damage']} major damage, "
+                    f"{damage_counts['minor-damage']} minor damage, "
+                    f"{damage_counts['no-damage']} undamaged. Total buildings: {total}."
+                )
+                documents.append(text)
+                ids.append(img_name)
+                metadatas.append({"disaster_type": disaster_type, "lat": center_lat, "lon": center_lon})
+            if ids:
+                disaster_collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+                logger.info("Synced %d scenes to disaster_assessments.", len(ids))
+    except Exception as exc:
+        logger.error("Auto-sync disaster_assessments failed: %s", exc)
+
+    try:
+        if articles_collection is not None and articles_collection.count() == 0:
+            logger.info("disaster_articles is empty — ingesting PDFs from S3...")
+            from dataparser import s3_client, bucket_name
+            from pdf_ingester import chunk_text as _chunk_text
+            from pypdf import PdfReader as _PdfReader
+            import io as _io
+            prefix = "xview2-test-data/documents/"
+            if s3_client and bucket_name:
+                resp = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+                for obj in resp.get("Contents", []):
+                    key = obj["Key"]
+                    if not key.lower().endswith(".pdf"):
+                        continue
+                    try:
+                        body = s3_client.get_object(Bucket=bucket_name, Key=key)["Body"].read()
+                        reader = _PdfReader(_io.BytesIO(body))
+                        text = "\n".join(p.extract_text() or "" for p in reader.pages)
+                        chunks = _chunk_text(text)
+                        title = key.split("/")[-1].replace(".pdf", "").replace("_", " ")
+                        doc_id = key.replace("/", "_").replace(".pdf", "").replace(" ", "_")
+                        chunk_ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
+                        metas = [{"source": key, "document_title": title, "disaster_type": "fire", "chunk_index": i, "total_chunks": len(chunks)} for i in range(len(chunks))]
+                        articles_collection.upsert(ids=chunk_ids, documents=chunks, metadatas=metas)
+                        logger.info("Ingested PDF '%s': %d chunks", title, len(chunks))
+                    except Exception as e:
+                        logger.warning("Failed to ingest PDF %s: %s", key, e)
+    except Exception as exc:
+        logger.error("Auto-sync disaster_articles failed: %s", exc)
+
+
 @asynccontextmanager
 async def chatbot_lifespan(_: Any):
     _clear_chat_state_on_startup()
+    _auto_sync_chroma()
     yield
 
 
@@ -391,7 +476,7 @@ def _retrieve_rag_context(
     safe_filters, id_filters = _split_rag_filters(filters)
     routed = route_prompt_to_query(
         prompt,
-        n_results=5,
+        n_results=10,
         last_queried_filename=memory.get("last_queried_filename"),
         last_found_files=memory.get("last_found_files"),
         around_center=memory.get("around_center"),
@@ -429,7 +514,7 @@ def _retrieve_rag_context(
             fallback_payload = dict(query_payload)
             fallback_payload.pop("where", None)
             fallback_payload["query_texts"] = [prompt]
-            fallback_payload["n_results"] = 5
+            fallback_payload["n_results"] = 10
             rows = _rows_from_query_results(disaster_collection.query(**fallback_payload))
     else:
         rows = _rows_from_query_results(disaster_collection.query(**query_payload))
@@ -437,7 +522,7 @@ def _retrieve_rag_context(
             fallback_payload = dict(query_payload)
             fallback_payload.pop("where", None)
             fallback_payload["query_texts"] = [prompt]
-            fallback_payload["n_results"] = 5
+            fallback_payload["n_results"] = 10
             rows = _rows_from_query_results(disaster_collection.query(**fallback_payload))
 
     matched_ids = [row[0] for row in rows]
@@ -453,7 +538,25 @@ def _retrieve_rag_context(
         if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
             memory["around_center"] = (float(lat), float(lon))
 
-    return "\n".join(matched_docs), route, len(matched_docs)
+    # Also query the articles collection for relevant background information
+    article_docs: list[str] = []
+    if articles_collection is not None:
+        try:
+            article_count = articles_collection.count()
+            if article_count > 0:
+                art_results = articles_collection.query(
+                    query_texts=[prompt], n_results=min(3, article_count)
+                )
+                article_docs = [d for d in (art_results.get("documents") or [[]])[0] if d]
+        except Exception as e:
+            logger.warning(f"Articles collection query failed: {e}")
+
+    sections: list[str] = []
+    if matched_docs:
+        sections.append("--- DAMAGE ASSESSMENT RECORDS ---\n" + "\n".join(matched_docs))
+    if article_docs:
+        sections.append("--- REFERENCE ARTICLES (FEMA / Wildfire Guides) ---\n" + "\n".join(article_docs))
+    return "\n\n".join(sections), route, len(matched_docs)
 
 
 # Send chat request to OpenRouter and return the response
@@ -656,10 +759,13 @@ def api_chat(body: ChatApiRequest, request: Request) -> dict[str, Any]:
 
     # STRENGTHENED SYSTEM PROMPT
     system = (
-        "You are the 'Disaster Assessment Assistant'. You have access to a database of satellite imagery labels. "
-        "Strictly use the 'RELEVANT DATABASE RECORDS' provided below to answer. "
-        "If the records contain information about a filename the user mentioned, summarize the building damage counts and location. "
-        "If no records are provided below, or they don't match the user's request, say: 'I couldn't find that specific record in my database.' "
+        "You are the 'Surge Disaster Assessment Assistant'. You help users understand building damage from satellite imagery analysis. "
+        "Use the 'RELEVANT DATABASE RECORDS' below to answer the user's question. "
+        "The records contain building damage assessments (destroyed, major-damage, minor-damage, no-damage counts per scene) "
+        "and may also include excerpts from FEMA and wildfire reference articles. "
+        "Answer questions about damage counts, locations, severity, and general disaster information based on these records. "
+        "If the records are empty or clearly unrelated to the question, say: 'I couldn't find that specific information in my database.' "
+        "Do not make up data not present in the records. Be concise and helpful. "
         "\n\nRELEVANT DATABASE RECORDS:\n"
         f"{rag_context if rag_context else 'No records found for this query.'}"
     )
