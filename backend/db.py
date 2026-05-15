@@ -16,6 +16,7 @@ from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse, StreamingResponse
+from pydantic import BaseModel
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
@@ -249,6 +250,41 @@ async def add_disaster_label(
         }
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class PdfIngestRequest(BaseModel):
+    path: str
+    document_title: str | None = None
+    disaster_type: str | None = None
+    source_url: str | None = None
+    filename: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    source_type: str | None = "document"
+
+
+@app.post("/documents/ingest")
+async def ingest_document(request: PdfIngestRequest):
+    raise HTTPException(
+        status_code=503,
+        detail="PDF ingestion has been disabled in this deployment.",
+    )
+
+
+@app.get("/documents")
+async def get_documents():
+    raise HTTPException(
+        status_code=503,
+        detail="PDF document listing has been disabled in this deployment.",
+    )
+
+
+@app.delete("/documents")
+async def delete_document(source: str = Query(..., description="PDF source path or S3 URI")):
+    raise HTTPException(
+        status_code=503,
+        detail="PDF document deletion has been disabled in this deployment.",
+    )
 
 
 # Deletes a disaster label; should be used to remove generated vlm analyses' ground truth labels after server restart

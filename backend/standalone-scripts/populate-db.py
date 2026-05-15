@@ -45,7 +45,8 @@ def upload_json_files(
 def main() -> None:
     load_dotenv()
 
-    folder = Path(__file__).resolve().parent / "extracted_files"
+    # Read JSON files directly from the user's Downloads folder
+    folder = Path(r"C:\Users\Proshun Saha\Downloads\test images tar")
 
     mongo_uri = os.getenv("MONGO_URI")
     db_name = os.getenv("MONGO_DB_NAME")

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # RAG: CHROMADB INITIALIZATION
 # ==========================================
-CHROMA_PATH = "./xview2_vector_db"
+CHROMA_PATH = os.getenv("CHROMA_DB_PATH", "./xview2_vector_db")
 try:
     chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
     disaster_collection = chroma_client.get_or_create_collection(
@@ -391,7 +391,7 @@ def _retrieve_rag_context(
     safe_filters, id_filters = _split_rag_filters(filters)
     routed = route_prompt_to_query(
         prompt,
-        n_results=5,
+        n_results=500,
         last_queried_filename=memory.get("last_queried_filename"),
         last_found_files=memory.get("last_found_files"),
         around_center=memory.get("around_center"),
@@ -453,7 +453,24 @@ def _retrieve_rag_context(
         if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
             memory["around_center"] = (float(lat), float(lon))
 
-    return "\n".join(matched_docs), route, len(matched_docs)
+    # Format context with source filenames from metadata
+    formatted_chunks: list[str] = []
+    for row in rows:
+        chunk_text = row[1]
+        metadata = row[2]
+        if chunk_text:  # Only include non-empty chunks
+            source_info = metadata.get("filename", "Unknown Source")
+            document_title = metadata.get("document_title", "")
+            if document_title:
+                source_info = f"{source_info} ({document_title})"
+            formatted_chunks.append(f"[Source: {source_info}]\n{chunk_text}")
+            logger.debug(f"Formatted chunk from {source_info}: {len(chunk_text)} chars")
+
+    formatted_context = "\n\n".join(formatted_chunks)
+    logger.info(
+        f"RAG context formatted: {len(formatted_chunks)} chunks, {len(formatted_context)} total chars"
+    )
+    return formatted_context, route, len(formatted_chunks)
 
 
 # Send chat request to OpenRouter and return the response
@@ -644,24 +661,36 @@ def api_chat(body: ChatApiRequest, request: Request) -> dict[str, Any]:
                 session_id=session_id,
                 filters=body.filters,
             )
-            if rag_context:
+            logger.info(
+                f"RAG context retrieved: route={rag_route}, results={rag_results}, context_len={len(rag_context)}"
+            )
+            if rag_context and rag_context.strip():
                 logger.info(
                     "RAG retrieval route=%s session=%s results=%d",
                     rag_route,
                     session_id,
                     rag_results,
                 )
+            else:
+                logger.warning(
+                    "RAG context is empty despite retrieval attempt: route=%s session=%s",
+                    rag_route,
+                    session_id,
+                )
         except Exception as e:
-            logger.error(f"RAG Retrieval Error: {e}")
+            logger.error(f"RAG Retrieval Error: {e}", exc_info=True)
 
-    # STRENGTHENED SYSTEM PROMPT
+    # ROBUST SYSTEM PROMPT SUPPORTING MULTIPLE QUERY TYPES
+    # FORCED-ANSWER SYSTEM PROMPT
     system = (
-        "You are the 'Disaster Assessment Assistant'. You have access to a database of satellite imagery labels. "
-        "Strictly use the 'RELEVANT DATABASE RECORDS' provided below to answer. "
-        "If the records contain information about a filename the user mentioned, summarize the building damage counts and location. "
-        "If no records are provided below, or they don't match the user's request, say: 'I couldn't find that specific record in my database.' "
+        "You are the 'Disaster Assessment Assistant'. You help users analyze satellite imagery damage labels and disaster-related documents. "
+        "You may respond naturally and politely to general greetings. "
+        "When answering specific questions, you must rely entirely on the 'RELEVANT DATABASE RECORDS' provided below. "
+        "- If the records contain satellite image data, summarize the building damage counts and location. "
+        "- If the records contain text from PDFs, you MUST use that text to form your response. Even if the text only partially addresses the user's prompt or lacks specific details, summarize whatever related information IS present in the text. Do not refuse to answer if text is provided. "
+        "Only say 'I couldn't find that specific information' if the 'RELEVANT DATABASE RECORDS' section is completely empty. "
         "\n\nRELEVANT DATABASE RECORDS:\n"
-        f"{rag_context if rag_context else 'No records found for this query.'}"
+        f"{rag_context if rag_context else ''}"
     )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
