@@ -1,3 +1,7 @@
+allowBuilds:
+  '@vaadin/vaadin-usage-statistics': true
+  core-js: true
+  esbuild: true
 onlyBuiltDependencies:
   - "@vaadin/vaadin-usage-statistics"
   - core-js
