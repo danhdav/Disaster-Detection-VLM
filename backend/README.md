@@ -13,7 +13,7 @@ or
 if you are using Windows
 
 3) Run the backend with Uvicorn (development with reload and specified host/port):
-`uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload`
+`uv run uvicorn server:app --host 0.0.0.0 --port 8000 --reload`
 
 You can also run the backend with production-oriented Uvicorn settings:
 `uv run python run.py`
@@ -44,7 +44,7 @@ An [example.env](https://github.com/danhdav/Disaster-Detection-VLM/blob/main/bac
 
 The existing dataset and the ground truth data are stored in the collection belonging to the cluster (see environment variables for the specific names). 
 
-1) Connect and see the dataset using the [Compass app](https://www.mongodb.com/try/download/shell) (if you are on Windows, MacOs, Ubuntu, or RedHat) or via [VS Code](https://www.mongodb.com/try/download/vs-code-extension). Simply enter the connection string (and ensure the username and password within the string are correct) and it should redirect you to the cluster listing.
+1) Connect and see the dataset using the [Compass app](https://www.mongodb.com/try/download/shell) (if you are on Windows, MacOS, Ubuntu, or RedHat) or via [VS Code](https://www.mongodb.com/try/download/vs-code-extension). Simply enter the connection string (and ensure the username and password within the string are correct) and it should redirect you to the cluster listing.
 
 2) Redis will be used to do local caching. Install [redis](https://redis.io/docs/latest/operate/oss_and_stack/install/archive/install-redis/) and ensure it is properly running with `redis-cli`. You can test your connection with:
 
@@ -53,5 +53,5 @@ The existing dataset and the ground truth data are stored in the collection belo
 PONG
 ```
 
-# OpenRouter
-The VLM and Chatbot will both be using models from OpenRouter. Token pricing is based on the model used and can be found on their [website](https://openrouter.ai/pricing).
+# OpenRouter and Anthropic
+The VLM and Chatbot will both be using models from OpenRouter and Anthropic. Token pricing is based on the model used and can be found on [OpenRouter](https://openrouter.ai/pricing) and [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing)'s websites.
