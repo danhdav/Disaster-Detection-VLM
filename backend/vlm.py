@@ -151,9 +151,21 @@ def _humanize_evidence(raw: str) -> list[str]:
         r"\bnot\s+unclear\b",
         r"\ball\s+three\s+are\b",
         r"\bsatisfying\s+the\b",
+        r"\bscoring\s+highest\b",
+        r"\bscor(?:es?|ing)\s+\d",
+        r"\bwith\s+\w+_\w+\s+scoring\b",
+        r"\bprevents\s+a\s+strict\b",
+        r"^\s*(?:but|and|so|however)\s*,",
     ]
 
     def _clean_sentence(s: str) -> str:
+        # Remove orphaned closing parens and trailing score fragments
+        s = re.sub(r"^\s*\)\s*,?\s*", "", s)
+        s = re.sub(r",?\s*so\s+with\s+\w+\s+scoring\s+highest[^.]*", "", s, flags=re.IGNORECASE)
+        s = re.sub(r",?\s*with\s+\w+_\w+\s+scoring\s+highest[^.]*", "", s, flags=re.IGNORECASE)
+        # Remove orphaned conjunctions/clause starters left after stripping technical content
+        s = re.sub(r"^\s*(?:but|and|so|which|however)[,\s]+(?:which\s+)?prevents\s+a\s+strict[^.]*", "", s, flags=re.IGNORECASE)
+        s = re.sub(r",?\s*which\s+prevents\s+a\s+strict[^.]*", "", s, flags=re.IGNORECASE)
         # Remove "— all three …" and similar dashes with technical content
         s = re.sub(r"\s*[—–-]+\s*(?:all\s+three|and\s+the|the\s+L[12])[^.]*\.?", "", s, flags=re.IGNORECASE)
         # Remove trailing ", and the L2 … ." clause (mixed sentences)

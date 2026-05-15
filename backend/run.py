@@ -24,7 +24,7 @@ def _env_bool(name: str, default: bool) -> bool:
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = _env_int("PORT", 8000)
-    workers = _env_int("UVICORN_WORKERS", 2)
+    workers = _env_int("UVICORN_WORKERS", 1)
     log_level = os.getenv("UVICORN_LOG_LEVEL", "info")
     access_log = _env_bool("UVICORN_ACCESS_LOG", True)
     timeout_keep_alive = _env_int("UVICORN_TIMEOUT_KEEP_ALIVE", 5)
