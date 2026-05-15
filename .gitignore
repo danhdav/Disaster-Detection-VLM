@@ -1,8 +1,7 @@
 backend/__pycache__
-backend/**/__pycache__
+backend/**/__pycache__/
 backend/.venv
 backend/.python-version
-
 backend/.env
 
 backend/cnn/weights/
@@ -20,3 +19,6 @@ frontend/.tanstack
 .zed/
 
 .claude/
+backend/xview2_vector_db/
+backend/standalone-scripts/extracted_files/
+pyrightconfig.json

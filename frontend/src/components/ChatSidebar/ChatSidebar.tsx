@@ -13,9 +13,13 @@ import {
   useChatSessionQuery,
   useChatSessionsQuery,
   useCreateChatSessionMutation,
+  useDeleteSessionMutation,
   usePersistSessionTurnMutation,
   useSendChatMessageMutation,
 } from "../../hooks/useChatQueries";
+
+// NEW: Import the map context!
+import { useMapContext } from "../../context/MapContext";
 
 interface ChatSessionEntry {
   id: string;
@@ -150,8 +154,12 @@ export function ChatSidebar() {
   const queryClient = useQueryClient();
   const sessionsQuery = useChatSessionsQuery();
   const createSessionMutation = useCreateChatSessionMutation();
+  const deleteSessionMutation = useDeleteSessionMutation();
   const sendMessageMutation = useSendChatMessageMutation();
   const persistTurnMutation = usePersistSessionTurnMutation();
+
+  // NEW: Grab the live map state directly from your context!
+  const { activeDisasterId, activeSceneId, activeFeatureId } = useMapContext();
 
   const [draftMessages, setDraftMessages] = useState<Message[]>(() => [
     createInitialAssistantMessage(),
@@ -159,6 +167,7 @@ export function ChatSidebar() {
   const [input, setInput] = useState("");
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionQuery = useChatSessionQuery(sessionId);
@@ -200,6 +209,29 @@ export function ChatSidebar() {
     }
     setSessionId(selectedSessionId);
     setInput("");
+  };
+
+  const handleDeleteSession = async (targetSessionId: string) => {
+    setDeletingSessionId(targetSessionId);
+    try {
+      await deleteSessionMutation.mutateAsync(targetSessionId);
+      queryClient.setQueryData(chatKeys.sessions(), (previous?: AllSessionHistoryMap) => {
+        if (!previous) return {};
+        const next = { ...previous };
+        delete next[targetSessionId];
+        return next;
+      });
+      queryClient.removeQueries({ queryKey: chatKeys.session(targetSessionId) });
+      if (sessionId === targetSessionId) {
+        setSessionId(null);
+        setDraftMessages([createInitialAssistantMessage()]);
+        setInput("");
+      }
+    } catch {
+      // Ignore delete failures in UI state and keep current list.
+    } finally {
+      setDeletingSessionId(null);
+    }
   };
 
   useEffect(() => {
@@ -286,10 +318,35 @@ export function ChatSidebar() {
       content: message.content,
     }));
 
+    // ==========================================
+    // NEW: CONTEXT-AWARE RAG FILTERING
+    // ==========================================
+    const activeFilters: Record<string, unknown> = {};
+
+    if (activeDisasterId) {
+      activeFilters["disaster_type"] = activeDisasterId.includes("-")
+        ? activeDisasterId.split("-")[1]
+        : activeDisasterId;
+      activeFilters["disaster_name"] = activeDisasterId;
+    }
+
+    // Tell ChromaDB to ONLY look at the specific image they are viewing
+    if (activeSceneId) {
+      activeFilters["id"] = `${activeSceneId}_post_disaster.png`;
+    }
+
+    // Invisible Prompt Injection for the LLM
+    let backendMessage = text;
+    if (activeFeatureId) {
+      backendMessage = `${text}\n\n[System Context: The user is currently looking at a specific feature on the map. Feature UID: ${activeFeatureId} inside the image ${activeSceneId}. Disaster Event: ${activeDisasterId}.]`;
+    }
+    // ==========================================
+
     const result = await sendMessageMutation.mutateAsync({
-      message: text,
+      message: backendMessage, // Send the injected message, NOT just 'text'
       history,
       sessionId: resolvedSessionId,
+      filters: activeFilters,
     });
 
     const assistantMessage: Message = {
@@ -313,12 +370,12 @@ export function ChatSidebar() {
       void persistTurnMutation
         .mutateAsync({
           sessionId: resolvedSessionId,
-          prompt: text,
+          prompt: text, // Save the clean text to the DB so history looks normal
           responseText: assistantMessage.content,
         })
         .then(() => queryClient.invalidateQueries({ queryKey: chatKeys.sessions() }))
         .catch(() => {
-          // Ignore persistence failures; the response is already shown to the user.
+          // Ignore persistence failures
         });
     }
 
@@ -386,17 +443,30 @@ export function ChatSidebar() {
             <p className={classes.surgeChatEmptySessionCopy}>No sessions yet.</p>
           ) : (
             sessions.map((session) => (
-              <button
+              <div
                 key={session.id}
                 className={`${classes.surgeChatSessionItem} ${session.id === sessionId ? classes.isActive : ""}`}
-                type="button"
-                onClick={() => handleSelectSession(session.id)}
               >
-                <span className={classes.surgeChatSessionId}>{session.id}</span>
-                <span className={classes.surgeChatSessionTime}>
-                  {session.createdAt.toLocaleTimeString()}
-                </span>
-              </button>
+                <button
+                  className={classes.surgeChatSessionSelect}
+                  type="button"
+                  onClick={() => handleSelectSession(session.id)}
+                >
+                  <span className={classes.surgeChatSessionId}>{session.id}</span>
+                  <span className={classes.surgeChatSessionTime}>
+                    {session.createdAt.toLocaleTimeString()}
+                  </span>
+                </button>
+                <button
+                  className={classes.surgeChatSessionDeleteBtn}
+                  type="button"
+                  aria-label={`Delete session ${session.id}`}
+                  disabled={deletingSessionId === session.id}
+                  onClick={() => void handleDeleteSession(session.id)}
+                >
+                  ×
+                </button>
+              </div>
             ))
           )}
         </div>

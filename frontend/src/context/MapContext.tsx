@@ -183,8 +183,8 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const [showPost, setShowPost] = React.useState(true);
 
   const fireLabelsQuery = useQuery({
-    queryKey: ["fire"],
-    queryFn: () => fetchJson<FireLabelDocument[]>(`${API_BASE}/fire`),
+    queryKey: ["disaster_data"],
+    queryFn: () => fetchJson<FireLabelDocument[]>(`${API_BASE}/disaster_data`),
     retry: false,
     staleTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,

@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,9 +16,6 @@ from chatbot import app as chatbot_router  # noqa: E402
 from cnn_router import app as cnn_router  # noqa: E402
 from db import app as db_router  # noqa: E402
 from vlm import app as vlm_router  # noqa: E402
-
-
-
 
 
 def _cors_origins() -> list[str]:
@@ -51,5 +47,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
-

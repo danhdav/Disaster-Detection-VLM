@@ -12,6 +12,14 @@ interface DebugHealthResponse {
     configured?: boolean;
     connected?: boolean;
   };
+  openrouter?: {
+    configured?: boolean;
+    connected?: boolean;
+    remainingCredits?: number | null;
+    totalCredits?: number | null;
+    totalUsage?: number | null;
+    error?: string;
+  };
   s3ImagesPrefix?: string;
 }
 
@@ -47,6 +55,8 @@ export function SystemStatus() {
   if (health && health.mongodb && health.mongodb.connected === false)
     issues.push("MongoDB not connected");
   if (health && health.s3 && health.s3.connected === false) issues.push("S3 not connected");
+  if (health && health.openrouter && health.openrouter.connected === false)
+    issues.push("OpenRouter credits unavailable");
 
   return (
     <section className="status-card">
@@ -73,6 +83,12 @@ export function SystemStatus() {
             <span>{health.s3?.connected ? "yes" : "no"}</span>
             <span>S3 prefix</span>
             <span>{health.s3ImagesPrefix ?? "-"}</span>
+            <span>OpenRouter credits</span>
+            <span>
+              {typeof health.openrouter?.remainingCredits === "number"
+                ? health.openrouter.remainingCredits.toFixed(2)
+                : "-"}
+            </span>
             <span>Last checked</span>
             <span>{lastCheckedAt ? lastCheckedAt.toLocaleTimeString() : "-"}</span>
           </div>
@@ -85,6 +101,16 @@ export function SystemStatus() {
             </span>
             <span className={`chip ${health.s3?.connected === false ? "chip-bad" : "chip-ok"}`}>
               s3 {health.s3?.connected === false ? "down" : "ok"}
+            </span>
+            <span
+              className={`chip ${health.openrouter?.connected === false ? "chip-bad" : "chip-ok"}`}
+            >
+              openrouter{" "}
+              {health.openrouter?.connected === false
+                ? "down"
+                : typeof health.openrouter?.remainingCredits === "number"
+                  ? `${health.openrouter.remainingCredits.toFixed(2)} credits`
+                  : "ok"}
             </span>
           </div>
 

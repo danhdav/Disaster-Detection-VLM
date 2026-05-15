@@ -6,18 +6,18 @@ from __future__ import annotations
 
 import os
 from typing import Any
+
 import boto3  # S3 client
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
-from botocore.config import Config
-
 
 # Load local environment variables
 mongo_uri = os.getenv("MONGO_URI")
 mongo_db_name = os.getenv("MONGO_DB_NAME", "disaster")
-mongo_collection_name = os.getenv("MONGO_COLLECTION_NAME", "fire_labels")
+mongo_collection_name = os.getenv("MONGO_COLLECTION_NAME")
 
 mongo_client: MongoClient | None = MongoClient(mongo_uri) if mongo_uri else None
 _db = mongo_client[mongo_db_name] if mongo_client is not None else None

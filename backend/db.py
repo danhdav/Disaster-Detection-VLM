@@ -5,35 +5,19 @@ To view the documentation UI, visit /docs
 
 from __future__ import annotations
 
-import csv
 import json
+import logging
 import os
-import pathlib
 from typing import Any
 
-_GEOTRANSFORM_PATH = pathlib.Path(__file__).parent.parent / "xview_geotransforms.json"
-_geotransforms: dict = {}
-if _GEOTRANSFORM_PATH.is_file():
-    with open(_GEOTRANSFORM_PATH) as _f:
-        _geotransforms = json.load(_f)
-
-
-def _geotransform_bounds(
-    gt: list[float], width: int = 1024, height: int = 1024
-) -> list[float]:
-    min_lng = gt[0]
-    max_lng = gt[0] + width * gt[1]
-    max_lat = gt[3]
-    min_lat = gt[3] + height * gt[5]
-    return [min_lng, min_lat, max_lng, max_lat]
-
+import redis
+import requests
 from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
-
 
 from dataparser import (
     S3_IMAGES_PREFIX,
@@ -41,16 +25,16 @@ from dataparser import (
     labels_collection,
     mongo_client,
     mongo_db_name,
-    s3_client,
     presigned_scene_image_urls,
+    s3_client,
     test_mongodb_connection,
     test_s3_connection,
 )
 
-
 app = APIRouter(tags=["data"])
+logger = logging.getLogger(__name__)
 
-fire_labels_collection = labels_collection
+disaster_labels_collection = labels_collection
 analysis_collection_name = os.getenv(
     "MONGO_ANALYSIS_COLLECTION_NAME", "analysis_results"
 )
@@ -59,18 +43,35 @@ analysis_collection: Collection | None = (
     if mongo_client is not None
     else None
 )
+_redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0").strip()
+redis_client: redis.Redis | None = redis.from_url(_redis_url) if _redis_url else None
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+disaster_labels_cache_ttl_seconds = _env_int("LABELS_CACHE_TTL_SECONDS", 300)
+LABELS_CACHE_KEY = "disaster-labels:all:v1"
 
 
 def _get_target_collection(collection: str) -> Collection | None:
     if collection == "labels":
-        return fire_labels_collection
+        return disaster_labels_collection
     if collection == "analysis":
         return analysis_collection
     return None
 
 
 def _require_mongo():
-    if fire_labels_collection is None:
+    if disaster_labels_collection is None:
         raise HTTPException(
             status_code=503,
             detail="MongoDB is not configured (set MONGO_URI and optional MONGO_DB_NAME / MONGO_COLLECTION_NAME).",
@@ -85,76 +86,134 @@ def _require_s3():
         )
 
 
-_allowed_disasters_raw = os.getenv("ALLOWED_DISASTERS", "").strip()
-_allowed_disasters: list[str] = (
-    [d.strip() for d in _allowed_disasters_raw.split(",") if d.strip()]
-    if _allowed_disasters_raw
-    else []
-)
-
-_eval_scenes_csv = os.getenv("EVAL_SCENES_CSV", "").strip()
-_allowed_scenes: list[str] = []
-# Maps scene_id -> set of allowed UIDs
-_eval_uids_by_scene: dict[str, set[str]] = {}
-if _eval_scenes_csv:
-    _csv_path = pathlib.Path(__file__).parent / _eval_scenes_csv
-    if _csv_path.is_file():
-        with open(_csv_path, newline="") as _f:
-            for row in csv.DictReader(_f):
-                tile = row.get("tile_id", "").strip()
-                uid = row.get("uid", "").strip()
-                if tile and uid:
-                    _eval_uids_by_scene.setdefault(tile, set()).add(uid)
-        _allowed_scenes = list(_eval_uids_by_scene.keys())
-
-
-def _filter_eval_features(doc: dict[str, Any]) -> dict[str, Any]:
-    """Keep only building features whose UID is in the eval set for this scene."""
-    if not _eval_uids_by_scene:
-        return doc
-    img_name = doc.get("metadata", {}).get("img_name", "")
-    scene_id = img_name.replace("_pre_disaster.png", "").replace("_post_disaster.png", "")
-    allowed = _eval_uids_by_scene.get(scene_id)
-    if allowed is None:
-        return doc
-    features = doc.get("features", {})
-    lng_lat = [f for f in features.get("lng_lat", []) if f.get("properties", {}).get("uid") in allowed]
-    xy = [f for f in features.get("xy", []) if f.get("properties", {}).get("uid") in allowed]
-    return {**doc, "features": {**features, "lng_lat": lng_lat, "xy": xy}}
-
-
-@app.get("/fire", response_model=list[dict[str, Any]])
-async def get_fire_labels():
-    _require_mongo()
-    assert fire_labels_collection is not None
+def _get_cached_disaster_labels() -> list[dict[str, Any]] | None:
+    if redis_client is None:
+        return None
     try:
-        query: dict[str, Any] = {}
-        if _allowed_disasters:
-            query["metadata.disaster"] = {"$in": _allowed_disasters}
-        if _allowed_scenes:
-            scene_patterns = [f"{s}_pre_disaster.png" for s in _allowed_scenes] + \
-                             [f"{s}_post_disaster.png" for s in _allowed_scenes]
-            query["metadata.img_name"] = {"$in": scene_patterns}
-        labels = list(fire_labels_collection.find(query))
-        print(f"Total labels retrieved: {len(labels)}")
-        result = []
+        cached = redis_client.get(LABELS_CACHE_KEY)
+    except redis.RedisError as exc:
+        logger.warning("Redis get failed for %s: %s", LABELS_CACHE_KEY, exc)
+        return None
+    if cached is None:
+        return None
+    try:
+        payload = json.loads(cached)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, list) else None
+
+
+def _set_cached_disaster_labels(labels: list[dict[str, Any]]) -> None:
+    if redis_client is None:
+        return
+    try:
+        redis_client.setex(
+            LABELS_CACHE_KEY,
+            disaster_labels_cache_ttl_seconds,
+            json.dumps(labels),
+        )
+    except redis.RedisError as exc:
+        logger.warning("Redis set failed for %s: %s", LABELS_CACHE_KEY, exc)
+
+
+def _invalidate_disaster_labels_cache() -> None:
+    if redis_client is None:
+        return
+    try:
+        redis_client.delete(LABELS_CACHE_KEY)
+    except redis.RedisError as exc:
+        logger.warning("Redis delete failed for %s: %s", LABELS_CACHE_KEY, exc)
+
+
+def _openrouter_credits_status() -> dict[str, Any]:
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        return {
+            "configured": False,
+            "connected": False,
+            "remainingCredits": None,
+            "error": "OPENROUTER_API_KEY is not set",
+        }
+
+    try:
+        response = requests.get(
+            "https://openrouter.ai/api/v1/credits",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        return {
+            "configured": True,
+            "connected": False,
+            "remainingCredits": None,
+            "error": str(exc),
+        }
+
+    if not response.ok:
+        return {
+            "configured": True,
+            "connected": False,
+            "remainingCredits": None,
+            "error": f"OpenRouter credits request failed ({response.status_code})",
+        }
+
+    body = response.json()
+    data = body.get("data", {})
+    total_credits = data.get("total_credits")
+    total_usage = data.get("total_usage")
+    if isinstance(total_credits, (int, float)) and isinstance(
+        total_usage, (int, float)
+    ):
+        remaining_credits: float | None = float(total_credits) - float(total_usage)
+    else:
+        remaining_credits = None
+
+    return {
+        "configured": True,
+        "connected": True,
+        "remainingCredits": remaining_credits,
+        "totalCredits": total_credits,
+        "totalUsage": total_usage,
+    }
+
+
+@app.get("/disaster_data", response_model=list[dict[str, Any]])
+@app.get("/fire", response_model=list[dict[str, Any]], include_in_schema=False)
+async def get_disaster_data():
+    _require_mongo()
+    assert disaster_labels_collection is not None
+    cached = _get_cached_disaster_labels()
+    if cached is not None:
+        logger.info(
+            "GET /disaster_data cache hit (key=%s, records=%d)",
+            LABELS_CACHE_KEY,
+            len(cached),
+        )
+        return cached
+    logger.info(
+        "GET /disaster_data cache miss (key=%s), querying MongoDB",
+        LABELS_CACHE_KEY,
+    )
+    try:
+        labels = list(disaster_labels_collection.find())
+        logger.info("GET /disaster_data MongoDB hit, retrieved %d records", len(labels))
         for label in labels:
             if "_id" in label:
                 label["_id"] = str(label["_id"])
-            result.append(_filter_eval_features(label))
-        return result
+        _set_cached_disaster_labels(labels)
+        return labels
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# Get a fire label by its metadata.img_name field (e.g. "scene00000123_pre_disaster.png")
-@app.get("/fire/search/{img_name}")
-async def search_fire_label(img_name: str):
+# Get a disaster label by its metadata.img_name field (e.g. "scene00000123_pre_disaster.png")
+@app.get("/disaster_data/search/{img_name}")
+async def search_disaster_label(img_name: str):
     _require_mongo()
-    assert fire_labels_collection is not None
+    assert disaster_labels_collection is not None
     key = img_name if img_name.lower().endswith(".png") else f"{img_name}.png"
     try:
-        label = fire_labels_collection.find_one({"metadata.img_name": key})
+        label = disaster_labels_collection.find_one({"metadata.img_name": key})
         if label:
             label["_id"] = str(label["_id"])
             return label
@@ -165,9 +224,9 @@ async def search_fire_label(img_name: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# Add a fire label document
-@app.post("/fire")
-async def add_fire_label(
+# Add a disaster label document
+@app.post("/disaster_data")
+async def add_disaster_label(
     data: dict[str, Any],
     collection: str = Query(default="labels", pattern="^(labels|analysis)$"),
 ):
@@ -181,6 +240,8 @@ async def add_fire_label(
         raise HTTPException(status_code=400, detail="No data provided")
     try:
         result = target_collection.insert_one(data)
+        if collection == "labels":
+            _invalidate_disaster_labels_cache()
         return {
             "_id": str(result.inserted_id),
             "message": f"Document added successfully to '{collection}'",
@@ -190,19 +251,20 @@ async def add_fire_label(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# Deletes a fire label; should be used to remove generated vlm analyses' ground truth labels after server restart
-@app.delete("/fire/{label_id}")
-async def delete_fire_label(label_id: str):
+# Deletes a disaster label; should be used to remove generated vlm analyses' ground truth labels after server restart
+@app.delete("/disaster_data/{label_id}")
+async def delete_disaster_label(label_id: str):
     _require_mongo()
-    assert fire_labels_collection is not None
+    assert disaster_labels_collection is not None
     try:
         oid = ObjectId(label_id)
     except InvalidId as e:
         raise HTTPException(status_code=400, detail="Invalid label id") from e
     try:
-        result = fire_labels_collection.delete_one({"_id": oid})
+        result = disaster_labels_collection.delete_one({"_id": oid})
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Label not found")
+        _invalidate_disaster_labels_cache()
         return {"message": "Label deleted successfully"}
     except HTTPException:
         raise
@@ -233,48 +295,37 @@ scene_id format follows the following example: santa-rosa-wildfire_00000257
 @app.get("/image/{scene_id}/{phase}")
 async def get_scene_image(scene_id: str, phase: str):
     _require_s3()
+    assert s3_client is not None
+    assert bucket_name is not None
     phase_key = phase.strip().lower()
     if phase_key not in {"pre", "post"}:
         raise HTTPException(status_code=400, detail="Phase must be 'pre' or 'post'")
 
+    key = f"{S3_IMAGES_PREFIX}{scene_id}_{phase_key}_disaster.png"
     try:
-        urls = presigned_scene_image_urls(scene_id)
-        url_key = "pre_image_url" if phase_key == "pre" else "post_image_url"
-        target_url = urls.get(url_key)
-        if not target_url:
-            raise HTTPException(status_code=404, detail="Image URL not found")
-
-        return RedirectResponse(target_url)
-
-    except HTTPException:
-        raise
+        response = s3_client.get_object(Bucket=bucket_name, Key=key)
+        body = response["Body"]
+        media_type = response.get("ContentType") or "image/png"
+        return StreamingResponse(body.iter_chunks(), media_type=media_type)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    except s3_client.exceptions.NoSuchKey as e:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=404, detail=f"Image not found for key: {key}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/geotransform/{scene_id}")
-def get_geotransform(scene_id: str):
-    pre_key  = f"{scene_id}_pre_disaster.png"
-    post_key = f"{scene_id}_post_disaster.png"
-    pre_gt   = _geotransforms.get(pre_key,  [None])[0]
-    post_gt  = _geotransforms.get(post_key, [None])[0]
-    return {
-        "pre_bounds":  _geotransform_bounds(pre_gt)  if pre_gt  else None,
-        "post_bounds": _geotransform_bounds(post_gt) if post_gt else None,
-    }
 
 
 @app.get("/debug/health")
 async def check_disasters():
     mongo_ok = test_mongodb_connection()
     s3_ok = test_s3_connection()
+    openrouter = _openrouter_credits_status()
     return {
         "status": "ok",
         "mongodb": {"configured": mongo_client is not None, "connected": mongo_ok},
         "s3": {"configured": bool(bucket_name), "connected": s3_ok},
+        "openrouter": openrouter,
         "s3ImagesPrefix": S3_IMAGES_PREFIX,
     }
