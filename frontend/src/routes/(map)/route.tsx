@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { CatchBoundary, Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { MapView } from "../../components/MapView";
+import { ChatToggleButton } from "../../components/ChatToggleButton/ChatToggleButton";
 import { ChatSidebar } from "../../components/ChatSidebar/ChatSidebar";
 import { SystemStatus } from "../../components/SystemStatus";
 import { MapProvider, useMapContext } from "../../context/MapContext";
@@ -14,7 +16,7 @@ function MapErrorFallback({ error, reset }: { error: Error; reset: () => void })
   return (
     <div className="result-block">
       Unable to initialize map rendering on this device.
-      {error.message ? ` ${error.message}` : ""}
+      {error.message ? ` ${error.message}` : ``}
       <div>
         <button className="panel-button" onClick={reset} type="button">
           Retry map
@@ -34,6 +36,7 @@ function MapLayoutRoute() {
 
 function MapLayout() {
   const navigate = useNavigate();
+  const [isChatOpen, setIsChatOpen] = useState(true);
   const {
     activeDisasterId,
     geoJson,
@@ -49,7 +52,7 @@ function MapLayout() {
       <div className="map-canvas">
         <CatchBoundary
           errorComponent={MapErrorFallback}
-          getResetKey={() => `${activeDisasterId ?? "none"}:${activeFeatureId ?? "none"}`}
+          getResetKey={() => `${activeDisasterId ?? `none`}:${activeFeatureId ?? `none`}`}
           onCatch={() => {
             // Keep map failures isolated so panel routes remain usable.
           }}
@@ -80,9 +83,15 @@ function MapLayout() {
         </div>
       </aside>
 
-      <aside className="chat-sidebar-panel" aria-label="Disaster assessment chat sidebar">
+      <aside
+        className={`chat-sidebar-panel ${isChatOpen ? `is-open` : `is-closed`}`}
+        aria-label="Disaster assessment chat sidebar"
+        aria-hidden={!isChatOpen}
+      >
         <ChatSidebar />
       </aside>
+
+      <ChatToggleButton isOpen={isChatOpen} onToggle={() => setIsChatOpen((open) => !open)} />
     </div>
   );
 }

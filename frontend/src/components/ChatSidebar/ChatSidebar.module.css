@@ -25,7 +25,6 @@
   min-height: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at top, rgba(37, 99, 235, 0.18), transparent 28%),
     linear-gradient(180deg, rgba(19, 22, 29, 0.98), rgba(10, 12, 18, 0.98));
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 16px;
@@ -53,7 +52,6 @@
   place-items: center;
   color: #fff;
   flex-shrink: 0;
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
 }
 
 .surge-chat-header-text {
@@ -457,8 +455,8 @@
 }
 
 .surge-chat-send-btn {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border-radius: 9px;
   background: var(--surge-chat-accent);
   border: none;
