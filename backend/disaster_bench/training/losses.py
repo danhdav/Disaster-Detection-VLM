@@ -26,9 +26,6 @@ import torch.nn.functional as F
 NUM_CLASSES = 4
 
 
-# ---------------------------------------------------------------------------
-# Class statistics
-# ---------------------------------------------------------------------------
 
 def compute_class_counts(records: list[dict], num_classes: int = NUM_CLASSES) -> np.ndarray:
     """Count raw training-label occurrences (before sampling).  Shape: (num_classes,)."""
@@ -50,9 +47,6 @@ def compute_class_prior(records: list[dict], num_classes: int = NUM_CLASSES,
     return (counts + eps) / (total + num_classes * eps)
 
 
-# ---------------------------------------------------------------------------
-# Class-Balanced weights  (Cui et al. 2019)
-# ---------------------------------------------------------------------------
 
 def build_cb_weights(counts: np.ndarray, beta: float = 0.9999) -> np.ndarray:
     """
@@ -66,9 +60,6 @@ def build_cb_weights(counts: np.ndarray, beta: float = 0.9999) -> np.ndarray:
     return w.astype(np.float32)
 
 
-# ---------------------------------------------------------------------------
-# LDAM margins
-# ---------------------------------------------------------------------------
 
 def build_ldam_margins(counts: np.ndarray, max_m: float = 0.5) -> np.ndarray:
     """
@@ -82,9 +73,6 @@ def build_ldam_margins(counts: np.ndarray, max_m: float = 0.5) -> np.ndarray:
     return m.astype(np.float32)
 
 
-# ---------------------------------------------------------------------------
-# Logit adjustment
-# ---------------------------------------------------------------------------
 
 def logit_adjust(
     logits: torch.Tensor,
@@ -108,9 +96,6 @@ def make_log_prior(records: list[dict], num_classes: int = NUM_CLASSES,
     return torch.tensor(np.log(prior), dtype=torch.float32, device=device)
 
 
-# ---------------------------------------------------------------------------
-# Focal Loss
-# ---------------------------------------------------------------------------
 
 class FocalLoss(nn.Module):
     """
@@ -157,9 +142,6 @@ class FocalLoss(nn.Module):
         return loss
 
 
-# ---------------------------------------------------------------------------
-# LDAM Loss
-# ---------------------------------------------------------------------------
 
 class LDAMLoss(nn.Module):
     """
@@ -199,9 +181,6 @@ class LDAMLoss(nn.Module):
         return F.cross_entropy(output, targets, weight=weight)
 
 
-# ---------------------------------------------------------------------------
-# Balanced Softmax Loss
-# ---------------------------------------------------------------------------
 
 class BalancedSoftmaxLoss(nn.Module):
     """
@@ -254,9 +233,6 @@ class ConfusionLoss(nn.Module):
         return torch.clamp(self.margin - dists, min=0.0).mean()
 
 
-# ---------------------------------------------------------------------------
-# Loss factory
-# ---------------------------------------------------------------------------
 
 def build_criterion(
     loss_type: str,

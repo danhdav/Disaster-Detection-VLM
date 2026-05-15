@@ -20,9 +20,6 @@ import numpy as np
 PRED_INSTANCES_DIR = "data/processed/pred_instances"
 
 
-# ---------------------------------------------------------------------------
-# Save / load
-# ---------------------------------------------------------------------------
 
 def save_pred_instances(
     tile_id: str,
@@ -84,9 +81,6 @@ def load_pred_instances(
     return instances
 
 
-# ---------------------------------------------------------------------------
-# Localization geometry checks (Ref §3.1)
-# ---------------------------------------------------------------------------
 
 def instance_count_check(
     pred_instances: list[dict[str, Any]],
@@ -175,9 +169,6 @@ def match_pred_to_gt(
     }
 
 
-# ---------------------------------------------------------------------------
-# Full footprint prediction pipeline for one tile
-# ---------------------------------------------------------------------------
 
 def predict_footprints_for_tile(
     post_image: np.ndarray,

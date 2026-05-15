@@ -34,9 +34,6 @@ def _error(status: int, msg: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"status": "error", "error": msg})
 
 
-# ---------------------------------------------------------------------------
-# Model loading — loaded once, cached for lifetime of the process
-# ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
 def _load_models() -> tuple[list[Any], int]:
@@ -55,9 +52,6 @@ def _load_models() -> tuple[list[Any], int]:
     return models, input_size
 
 
-# ---------------------------------------------------------------------------
-# Image helpers
-# ---------------------------------------------------------------------------
 
 def _download_image(url: str) -> np.ndarray:
     resp = _requests.get(url, timeout=30)
@@ -119,9 +113,6 @@ def _to_6ch_tensor(pre: np.ndarray, post: np.ndarray, size: int) -> Any:
     return t
 
 
-# ---------------------------------------------------------------------------
-# Inference: 3 seeds × TTA-4 rotations, tau-norm
-# ---------------------------------------------------------------------------
 
 def _run_inference(pre_crop: np.ndarray, post_crop: np.ndarray, crop_size: int) -> np.ndarray:
     import torch
@@ -144,9 +135,6 @@ def _run_inference(pre_crop: np.ndarray, post_crop: np.ndarray, crop_size: int) 
     return acc / len(models)                        # average over seeds
 
 
-# ---------------------------------------------------------------------------
-# Helper: find a feature's pixel-space WKT (xy features, not lng_lat)
-# ---------------------------------------------------------------------------
 
 def _find_xy_wkt(
     pre_doc: dict | None,
@@ -164,9 +152,6 @@ def _find_xy_wkt(
     return None
 
 
-# ---------------------------------------------------------------------------
-# Endpoint
-# ---------------------------------------------------------------------------
 
 class CnnAnalyzeRequest(BaseModel):
     disasterId: str = Field(min_length=1)

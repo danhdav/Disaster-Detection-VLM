@@ -31,9 +31,6 @@ DAMAGE_SEVERITY  = [          # class-index → damage label
 ]
 
 
-# ---------------------------------------------------------------------------
-# Building blocks
-# ---------------------------------------------------------------------------
 
 def _double_conv(in_ch: int, out_ch: int) -> "nn.Sequential":
     import torch.nn as nn
@@ -45,9 +42,6 @@ def _double_conv(in_ch: int, out_ch: int) -> "nn.Sequential":
     )
 
 
-# ---------------------------------------------------------------------------
-# Siamese U-Net
-# ---------------------------------------------------------------------------
 
 def build_siamese_unet(
     num_classes: int = SEVERITY_CLASSES,
@@ -134,9 +128,6 @@ def build_siamese_unet(
     return SiameseUNet()
 
 
-# ---------------------------------------------------------------------------
-# Polygon aggregation from learned damage map
-# ---------------------------------------------------------------------------
 
 def aggregate_damage_from_map(
     severity_logits: np.ndarray,
@@ -176,9 +167,6 @@ def aggregate_damage_from_map(
     return label, conf
 
 
-# ---------------------------------------------------------------------------
-# Checkpoint I/O
-# ---------------------------------------------------------------------------
 
 def save_siamese_unet_checkpoint(
     model: "nn.Module",
@@ -211,9 +199,6 @@ def load_siamese_unet(path: str | Path, device: str = "cpu") -> tuple["nn.Module
     return model.to(device), post_only
 
 
-# ---------------------------------------------------------------------------
-# Pixel-wise dataset (tile-level, returns (pre_post_6ch, label_mask) pairs)
-# ---------------------------------------------------------------------------
 
 class PixelDamageDataset:
     """

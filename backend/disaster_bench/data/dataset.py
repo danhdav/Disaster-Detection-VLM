@@ -12,9 +12,6 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-# ---------------------------------------------------------------------------
-# Augmentation config dataclass (plain dict is fine for CLI → dataset bridge)
-# ---------------------------------------------------------------------------
 #
 # AugConfig fields (all optional, default = off):
 #   rotate90           float  — if > 0, sample k uniformly from {0,90,180,270} (true uniform
@@ -154,9 +151,6 @@ def load_crop_pair(
     return combined.transpose(2, 0, 1)              # (6,H,W)
 
 
-# ---------------------------------------------------------------------------
-# Augmentation helpers (module-level so they can be imported by tests)
-# ---------------------------------------------------------------------------
 
 def _apply_affine(x: np.ndarray) -> np.ndarray:
     """

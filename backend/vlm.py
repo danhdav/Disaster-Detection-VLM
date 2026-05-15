@@ -44,10 +44,6 @@ except Exception as _e:
 app = APIRouter(tags=["vlm"])
 
 
-# ---------------------------------------------------------------------------
-# Building crop helpers — produce base64 data-URL crops with red outline
-# so the VLM receives exactly what the benchmark pipeline produces.
-# ---------------------------------------------------------------------------
 
 def _download_arr(url: str) -> np.ndarray:
     resp = requests.get(url, timeout=30)

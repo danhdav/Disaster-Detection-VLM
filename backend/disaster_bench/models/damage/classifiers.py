@@ -15,9 +15,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# ---------------------------------------------------------------------------
-# Shared encoder backbone (re-used by all classifiers)
-# ---------------------------------------------------------------------------
 
 def _make_encoder(in_ch: int, base: int = 32) -> nn.Sequential:
     """4-block conv encoder: in_ch -> base*8 channels, global avg pool."""
@@ -49,10 +46,6 @@ def _make_head(feat_dim: int, num_classes: int, dropout: float) -> nn.Sequential
     )
 
 
-# ---------------------------------------------------------------------------
-# Pre/Post/Diff — 9 channels: pre RGB | post RGB | |post-pre| RGB
-# Ref §2.1: "Pre/Post/Diff classifier"
-# ---------------------------------------------------------------------------
 
 class PrePostDiffCNN(nn.Module):
     """
@@ -77,10 +70,6 @@ class PrePostDiffCNN(nn.Module):
         return torch.cat([pre, post, diff], dim=1)
 
 
-# ---------------------------------------------------------------------------
-# Siamese — encode pre and post separately, fuse features -> 4-class
-# Ref §2.1: "Siamese classifier: encode pre and post separately → fuse → 4-class"
-# ---------------------------------------------------------------------------
 
 class SiameseCNN(nn.Module):
     """
@@ -102,11 +91,6 @@ class SiameseCNN(nn.Module):
         return self.head(fused)
 
 
-# ---------------------------------------------------------------------------
-# Centroid-patch — fixed square crop around polygon centroid from full image
-# Same architecture as 6-channel but dataset feeds centroid crops.
-# Ref §2.1: "Centroid-patch classifier: centroid from polygon/mask → fixed patch"
-# ---------------------------------------------------------------------------
 
 class CentroidPatchCNN(nn.Module):
     """
@@ -125,10 +109,6 @@ class CentroidPatchCNN(nn.Module):
         return self.head(self.encoder(x))
 
 
-# ---------------------------------------------------------------------------
-# Multi-head cascade model — shared backbone + 3 task-specific heads
-# Used with --cascade_mode multihead + --threshold_policy cascade_threshold
-# ---------------------------------------------------------------------------
 
 class MultiHeadCNN(nn.Module):
     """
@@ -175,9 +155,6 @@ def build_multihead_classifier(
     return MultiHeadCNN(in_ch=in_ch, dropout=dropout)
 
 
-# ---------------------------------------------------------------------------
-# ResNet-18 with pretrained ImageNet weights — 6-channel input
-# ---------------------------------------------------------------------------
 
 class ResNet18SixChannel(nn.Module):
     """
@@ -218,9 +195,6 @@ class ResNet18SixChannel(nn.Module):
         return self.head(self.encoder(x))
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
 
 _MODEL_REGISTRY: dict[str, type] = {
     "six_channel":         None,               # loaded from six_channel.py
