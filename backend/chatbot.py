@@ -314,7 +314,9 @@ def _auto_sync_chroma() -> None:
 @asynccontextmanager
 async def chatbot_lifespan(_: Any):
     _clear_chat_state_on_startup()
-    _auto_sync_chroma()
+    # Run sync in a background thread so it doesn't block startup/healthcheck
+    import threading
+    threading.Thread(target=_auto_sync_chroma, daemon=True).start()
     yield
 
 
