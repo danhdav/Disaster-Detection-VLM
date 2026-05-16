@@ -85,11 +85,11 @@ def group_files_query(
     return payload
 
 
-def single_file_query(query_text: str, filename: str) -> dict[str, Any]:
+def single_file_query(query_text: str, filename: str, n_results: int = 5) -> dict[str, Any]:
     """Semantic query restricted to one filename."""
     payload = {
         "query_texts": [query_text],
-        "n_results": 1,
+        "n_results": n_results,
         "where": {"filename": filename},
     }
     _debug_query("single_file_query", payload, filename=filename)
@@ -176,8 +176,8 @@ def route_prompt_to_query(
     last_queried_filename: str | None = None,
     last_found_files: list[str] | None = None,
     around_center: tuple[float, float] | None = None,
-    around_radius: float = 0.02,
-    coord_radius: float = 0.05,
+    around_radius: float = 0.05,
+    coord_radius: float = 0.1,
     disaster_type: str | None = None,
     source_type: str | None = None,
 ) -> dict[str, Any]:

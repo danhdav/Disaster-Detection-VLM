@@ -29,8 +29,8 @@ interface ChatSessionEntry {
 const SUGGESTIONS = [
   "How many structures were destroyed?",
   "How many buildings show major damage?",
-  "How many buildings were undamaged?",
-  "What steps are recommended next?",
+  "How many buildings were undamaged in Santa Rosa?",
+  "What should I do after a wildfire to protect my home?",
 ];
 
 const DAMAGE_COLORS: Record<string, string> = {
@@ -91,8 +91,76 @@ function StatCards({ stats }: { stats: Record<string, string | number> }) {
   );
 }
 
+function renderMarkdown(text: string): React.ReactNode[] {
+  const lines = text.split("\n");
+  const nodes: React.ReactNode[] = [];
+
+  const applyInline = (line: string, key: string): React.ReactNode => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return (
+      <span key={key}>
+        {parts.map((part, i) =>
+          part.startsWith("**") && part.endsWith("**") ? (
+            <strong key={i}>{part.slice(2, -2)}</strong>
+          ) : (
+            part
+          ),
+        )}
+      </span>
+    );
+  };
+
+  lines.forEach((line, i) => {
+    const bulletMatch = /^[-*]\s+(.*)/.exec(line);
+    const numberedMatch = /^\d+\.\s+(.*)/.exec(line);
+    if (bulletMatch) {
+      nodes.push(<li key={i}>{applyInline(bulletMatch[1], `li-${i}`)}</li>);
+    } else if (numberedMatch) {
+      nodes.push(<li key={i}>{applyInline(numberedMatch[1], `li-${i}`)}</li>);
+    } else if (line.trim() === "") {
+      nodes.push(<br key={i} />);
+    } else {
+      nodes.push(
+        <p key={i} style={{ margin: "2px 0" }}>
+          {applyInline(line, `p-${i}`)}
+        </p>,
+      );
+    }
+  });
+
+  // Wrap consecutive <li> elements in a <ul>
+  const grouped: React.ReactNode[] = [];
+  let listItems: React.ReactNode[] = [];
+  nodes.forEach((node, i) => {
+    const el = node as React.ReactElement;
+    if (el?.type === "li") {
+      listItems.push(node);
+    } else {
+      if (listItems.length > 0) {
+        grouped.push(
+          <ul key={`ul-${i}`} style={{ paddingLeft: "1.2em", margin: "4px 0" }}>
+            {listItems}
+          </ul>,
+        );
+        listItems = [];
+      }
+      grouped.push(node);
+    }
+  });
+  if (listItems.length > 0) {
+    grouped.push(
+      <ul key="ul-end" style={{ paddingLeft: "1.2em", margin: "4px 0" }}>
+        {listItems}
+      </ul>,
+    );
+  }
+  return grouped;
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
+  // Don't render empty assistant placeholders — the TypingIndicator covers this state.
+  if (!isUser && !message.content) return null;
 
   return (
     <div
@@ -118,7 +186,7 @@ function MessageBubble({ message }: { message: Message }) {
         <div
           className={`${classes.surgeChatBubble} ${isUser ? classes.isUser : classes.isAssistant}`}
         >
-          {message.content}
+          {isUser ? message.content : renderMarkdown(message.content)}
           {message.stats ? <StatCards stats={message.stats} /> : null}
         </div>
         <div className={`${classes.surgeChatMeta} ${isUser ? classes.isUser : ""}`}>
@@ -323,17 +391,10 @@ export function ChatSidebar() {
     // ==========================================
     const activeFilters: Record<string, unknown> = {};
 
-    if (activeDisasterId) {
-      activeFilters["disaster_type"] = activeDisasterId.includes("-")
-        ? activeDisasterId.split("-")[1]
-        : activeDisasterId;
-      activeFilters["disaster_name"] = activeDisasterId;
-    }
-
-    // Tell ChromaDB to ONLY look at the specific image they are viewing
-    if (activeSceneId) {
-      activeFilters["id"] = `${activeSceneId}_post_disaster.png`;
-    }
+    // NOTE: We intentionally do NOT send activeSceneId as an "id" filter here.
+    // Doing so restricts ChromaDB to a single scene, which breaks general questions
+    // like "what streets are nearby?" or "which disaster caused the most damage?"
+    // The [System Context] injection below already tells the LLM which scene is active.
 
     // Invisible Prompt Injection for the LLM
     let backendMessage = text;
