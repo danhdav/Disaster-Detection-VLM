@@ -9,6 +9,7 @@ _Before beginning the following steps, ensure you have a local install of Node.j
 Install the dependencies:
 
 ```bash
+npm install -g corepack
 corepack enable # installs the pnpm package manager
 pnpm install
 ```

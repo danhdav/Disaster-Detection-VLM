@@ -13,9 +13,13 @@ import {
   useChatSessionQuery,
   useChatSessionsQuery,
   useCreateChatSessionMutation,
+  useDeleteSessionMutation,
   usePersistSessionTurnMutation,
   useSendChatMessageMutation,
 } from "../../hooks/useChatQueries";
+
+// NEW: Import the map context!
+import { useMapContext } from "../../context/MapContext";
 
 interface ChatSessionEntry {
   id: string;
@@ -25,8 +29,8 @@ interface ChatSessionEntry {
 const SUGGESTIONS = [
   "How many structures were destroyed?",
   "How many buildings show major damage?",
-  "How many buildings were undamaged?",
-  "What steps are recommended next?",
+  "How many buildings were undamaged in Santa Rosa?",
+  "What should I do after a wildfire to protect my home?",
 ];
 
 const DAMAGE_COLORS: Record<string, string> = {
@@ -87,8 +91,76 @@ function StatCards({ stats }: { stats: Record<string, string | number> }) {
   );
 }
 
+function renderMarkdown(text: string): React.ReactNode[] {
+  const lines = text.split("\n");
+  const nodes: React.ReactNode[] = [];
+
+  const applyInline = (line: string, key: string): React.ReactNode => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return (
+      <span key={key}>
+        {parts.map((part, i) =>
+          part.startsWith("**") && part.endsWith("**") ? (
+            <strong key={i}>{part.slice(2, -2)}</strong>
+          ) : (
+            part
+          ),
+        )}
+      </span>
+    );
+  };
+
+  lines.forEach((line, i) => {
+    const bulletMatch = /^[-*]\s+(.*)/.exec(line);
+    const numberedMatch = /^\d+\.\s+(.*)/.exec(line);
+    if (bulletMatch) {
+      nodes.push(<li key={i}>{applyInline(bulletMatch[1], `li-${i}`)}</li>);
+    } else if (numberedMatch) {
+      nodes.push(<li key={i}>{applyInline(numberedMatch[1], `li-${i}`)}</li>);
+    } else if (line.trim() === "") {
+      nodes.push(<br key={i} />);
+    } else {
+      nodes.push(
+        <p key={i} style={{ margin: "2px 0" }}>
+          {applyInline(line, `p-${i}`)}
+        </p>,
+      );
+    }
+  });
+
+  // Wrap consecutive <li> elements in a <ul>
+  const grouped: React.ReactNode[] = [];
+  let listItems: React.ReactNode[] = [];
+  nodes.forEach((node, i) => {
+    const el = node as React.ReactElement;
+    if (el?.type === "li") {
+      listItems.push(node);
+    } else {
+      if (listItems.length > 0) {
+        grouped.push(
+          <ul key={`ul-${i}`} style={{ paddingLeft: "1.2em", margin: "4px 0" }}>
+            {listItems}
+          </ul>,
+        );
+        listItems = [];
+      }
+      grouped.push(node);
+    }
+  });
+  if (listItems.length > 0) {
+    grouped.push(
+      <ul key="ul-end" style={{ paddingLeft: "1.2em", margin: "4px 0" }}>
+        {listItems}
+      </ul>,
+    );
+  }
+  return grouped;
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
+  // Don't render empty assistant placeholders — the TypingIndicator covers this state.
+  if (!isUser && !message.content) return null;
 
   return (
     <div
@@ -114,7 +186,7 @@ function MessageBubble({ message }: { message: Message }) {
         <div
           className={`${classes.surgeChatBubble} ${isUser ? classes.isUser : classes.isAssistant}`}
         >
-          {message.content}
+          {isUser ? message.content : renderMarkdown(message.content)}
           {message.stats ? <StatCards stats={message.stats} /> : null}
         </div>
         <div className={`${classes.surgeChatMeta} ${isUser ? classes.isUser : ""}`}>
@@ -150,8 +222,12 @@ export function ChatSidebar() {
   const queryClient = useQueryClient();
   const sessionsQuery = useChatSessionsQuery();
   const createSessionMutation = useCreateChatSessionMutation();
+  const deleteSessionMutation = useDeleteSessionMutation();
   const sendMessageMutation = useSendChatMessageMutation();
   const persistTurnMutation = usePersistSessionTurnMutation();
+
+  // NEW: Grab the live map state directly from your context!
+  const { activeDisasterId, activeSceneId, activeFeatureId } = useMapContext();
 
   const [draftMessages, setDraftMessages] = useState<Message[]>(() => [
     createInitialAssistantMessage(),
@@ -159,6 +235,7 @@ export function ChatSidebar() {
   const [input, setInput] = useState("");
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionQuery = useChatSessionQuery(sessionId);
@@ -200,6 +277,29 @@ export function ChatSidebar() {
     }
     setSessionId(selectedSessionId);
     setInput("");
+  };
+
+  const handleDeleteSession = async (targetSessionId: string) => {
+    setDeletingSessionId(targetSessionId);
+    try {
+      await deleteSessionMutation.mutateAsync(targetSessionId);
+      queryClient.setQueryData(chatKeys.sessions(), (previous?: AllSessionHistoryMap) => {
+        if (!previous) return {};
+        const next = { ...previous };
+        delete next[targetSessionId];
+        return next;
+      });
+      queryClient.removeQueries({ queryKey: chatKeys.session(targetSessionId) });
+      if (sessionId === targetSessionId) {
+        setSessionId(null);
+        setDraftMessages([createInitialAssistantMessage()]);
+        setInput("");
+      }
+    } catch {
+      // Ignore delete failures in UI state and keep current list.
+    } finally {
+      setDeletingSessionId(null);
+    }
   };
 
   useEffect(() => {
@@ -286,10 +386,28 @@ export function ChatSidebar() {
       content: message.content,
     }));
 
+    // ==========================================
+    // NEW: CONTEXT-AWARE RAG FILTERING
+    // ==========================================
+    const activeFilters: Record<string, unknown> = {};
+
+    // NOTE: We intentionally do NOT send activeSceneId as an "id" filter here.
+    // Doing so restricts ChromaDB to a single scene, which breaks general questions
+    // like "what streets are nearby?" or "which disaster caused the most damage?"
+    // The [System Context] injection below already tells the LLM which scene is active.
+
+    // Invisible Prompt Injection for the LLM
+    let backendMessage = text;
+    if (activeFeatureId) {
+      backendMessage = `${text}\n\n[System Context: The user is currently looking at a specific feature on the map. Feature UID: ${activeFeatureId} inside the image ${activeSceneId}. Disaster Event: ${activeDisasterId}.]`;
+    }
+    // ==========================================
+
     const result = await sendMessageMutation.mutateAsync({
-      message: text,
+      message: backendMessage, // Send the injected message, NOT just 'text'
       history,
       sessionId: resolvedSessionId,
+      filters: activeFilters,
     });
 
     const assistantMessage: Message = {
@@ -313,12 +431,12 @@ export function ChatSidebar() {
       void persistTurnMutation
         .mutateAsync({
           sessionId: resolvedSessionId,
-          prompt: text,
+          prompt: text, // Save the clean text to the DB so history looks normal
           responseText: assistantMessage.content,
         })
         .then(() => queryClient.invalidateQueries({ queryKey: chatKeys.sessions() }))
         .catch(() => {
-          // Ignore persistence failures; the response is already shown to the user.
+          // Ignore persistence failures
         });
     }
 
@@ -386,17 +504,30 @@ export function ChatSidebar() {
             <p className={classes.surgeChatEmptySessionCopy}>No sessions yet.</p>
           ) : (
             sessions.map((session) => (
-              <button
+              <div
                 key={session.id}
                 className={`${classes.surgeChatSessionItem} ${session.id === sessionId ? classes.isActive : ""}`}
-                type="button"
-                onClick={() => handleSelectSession(session.id)}
               >
-                <span className={classes.surgeChatSessionId}>{session.id}</span>
-                <span className={classes.surgeChatSessionTime}>
-                  {session.createdAt.toLocaleTimeString()}
-                </span>
-              </button>
+                <button
+                  className={classes.surgeChatSessionSelect}
+                  type="button"
+                  onClick={() => handleSelectSession(session.id)}
+                >
+                  <span className={classes.surgeChatSessionId}>{session.id}</span>
+                  <span className={classes.surgeChatSessionTime}>
+                    {session.createdAt.toLocaleTimeString()}
+                  </span>
+                </button>
+                <button
+                  className={classes.surgeChatSessionDeleteBtn}
+                  type="button"
+                  aria-label={`Delete session ${session.id}`}
+                  disabled={deletingSessionId === session.id}
+                  onClick={() => void handleDeleteSession(session.id)}
+                >
+                  ×
+                </button>
+              </div>
             ))
           )}
         </div>

@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   chatKeys,
   createChatSession,
+  deleteSessionHistory,
   fetchAllSessionHistory,
   fetchSessionHistory,
   normalizeHistoryToMessages,
@@ -46,11 +47,13 @@ export function useSendChatMessageMutation() {
       message,
       history,
       sessionId,
+      filters, // <-- NEW: Accept filters
     }: {
       message: string;
       history: ChatMessageRequest[];
       sessionId: string;
-    }) => sendChatMessage(message, history, sessionId),
+      filters?: Record<string, unknown>;
+    }) => sendChatMessage(message, history, sessionId, filters), // <-- NEW: Pass to API
   });
 }
 
@@ -65,5 +68,11 @@ export function usePersistSessionTurnMutation() {
       prompt: string;
       responseText: string;
     }) => persistSessionTurn(sessionId, prompt, responseText),
+  });
+}
+
+export function useDeleteSessionMutation() {
+  return useMutation({
+    mutationFn: (sessionId: string) => deleteSessionHistory(sessionId),
   });
 }
