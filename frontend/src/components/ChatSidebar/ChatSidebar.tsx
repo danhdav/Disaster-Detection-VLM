@@ -120,7 +120,11 @@ function renderMarkdown(text: string): React.ReactNode[] {
     } else if (line.trim() === "") {
       nodes.push(<br key={i} />);
     } else {
-      nodes.push(<p key={i} style={{ margin: "2px 0" }}>{applyInline(line, `p-${i}`)}</p>);
+      nodes.push(
+        <p key={i} style={{ margin: "2px 0" }}>
+          {applyInline(line, `p-${i}`)}
+        </p>,
+      );
     }
   });
 
@@ -133,14 +137,22 @@ function renderMarkdown(text: string): React.ReactNode[] {
       listItems.push(node);
     } else {
       if (listItems.length > 0) {
-        grouped.push(<ul key={`ul-${i}`} style={{ paddingLeft: "1.2em", margin: "4px 0" }}>{listItems}</ul>);
+        grouped.push(
+          <ul key={`ul-${i}`} style={{ paddingLeft: "1.2em", margin: "4px 0" }}>
+            {listItems}
+          </ul>,
+        );
         listItems = [];
       }
       grouped.push(node);
     }
   });
   if (listItems.length > 0) {
-    grouped.push(<ul key="ul-end" style={{ paddingLeft: "1.2em", margin: "4px 0" }}>{listItems}</ul>);
+    grouped.push(
+      <ul key="ul-end" style={{ paddingLeft: "1.2em", margin: "4px 0" }}>
+        {listItems}
+      </ul>,
+    );
   }
   return grouped;
 }
