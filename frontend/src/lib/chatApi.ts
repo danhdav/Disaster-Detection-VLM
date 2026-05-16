@@ -164,7 +164,7 @@ export async function sendChatMessage(
         conversation_history: history,
         filters: filters ?? {},
       }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(120000),
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -180,9 +180,12 @@ export async function sendChatMessage(
       stats: data.stats ?? null,
       backendConnected: true,
     };
-  } catch {
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
     return {
-      text: "I could not reach the chat API right now. Please try again in a moment.",
+      text: isTimeout
+        ? "The response took too long to generate. Please try again — complex questions sometimes need a moment."
+        : "Could not reach the assistant right now. Please check your connection and try again.",
       stats: null,
       backendConnected: false,
     };

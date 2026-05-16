@@ -19,8 +19,78 @@ from pydantic import BaseModel, Field  # use for data validation error checking
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+import re as _re
+
 from dataparser import mongo_client, mongo_db_name
 from search import route_prompt_to_query
+
+_NEARBY_KEYWORDS = {"street", "road", "avenue", "nearby", "neighborhood", "address", "location", "where", "area"}
+_UID_PATTERN = _re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", _re.IGNORECASE)
+# Strip frontend-injected context blocks before routing so the UID in [System Context: ...] doesn't
+# trigger uid_lookup on every message when the user has a map feature selected.
+_SYSTEM_CONTEXT_PATTERN = _re.compile(r"\n\n\[System Context:.*?\]", _re.DOTALL)
+# Extracts the scene ID from the injected context, e.g. "inside the image hurricane-matthew_00000010"
+_SCENE_ID_FROM_CONTEXT = _re.compile(r"inside the image ([^\s.\]]+)", _re.IGNORECASE)
+
+
+def _lookup_uid(uid: str) -> str | None:
+    """Look up a building UID in MongoDB and return a summary string."""
+    try:
+        col_name = os.getenv("MONGO_COLLECTION_NAME", "dataset")
+        col = mongo_client[mongo_db_name][col_name]
+        doc = col.find_one({"features.xy.properties.uid": uid})
+        if not doc:
+            return None
+
+        img_name = doc["metadata"].get("img_name", "unknown")
+        disaster_type = doc["metadata"].get("disaster_type", "unknown")
+
+        subtype = "unknown"
+        for b in doc.get("features", {}).get("xy", []):
+            if b["properties"].get("uid") == uid:
+                subtype = b["properties"].get("subtype", "unknown")
+                break
+
+        # Extract centroid from WKT polygon
+        lat, lon = 0.0, 0.0
+        for entry in doc.get("features", {}).get("lng_lat", []):
+            if entry.get("properties", {}).get("uid") == uid:
+                coords = _re.findall(r"(-?\d+\.\d+)\s+(-?\d+\.\d+)", entry.get("wkt", ""))
+                if coords:
+                    lon = sum(float(c[0]) for c in coords) / len(coords)
+                    lat = sum(float(c[1]) for c in coords) / len(coords)
+                break
+
+        address = _reverse_geocode(lat, lon) if lat and lon else None
+        lines = [
+            f"Building UID: {uid}",
+            f"Scene: {img_name}",
+            f"Disaster: {disaster_type}",
+            f"Damage Level: {subtype}",
+            f"Coordinates: Lat {lat:.6f}, Lon {lon:.6f}",
+        ]
+        if address:
+            lines.append(f"Nearest Address: {address}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning("UID lookup failed for %s: %s", uid, e)
+        return None
+
+
+def _reverse_geocode(lat: float, lon: float) -> str | None:
+    """Convert lat/lon to a human-readable address using Nominatim (free, no API key)."""
+    try:
+        r = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "json", "zoom": 18},
+            headers={"User-Agent": "SurgeDisasterAssessmentApp/1.0"},
+            timeout=5,
+        )
+        data = r.json()
+        return data.get("display_name")
+    except Exception as e:
+        logger.warning("Reverse geocode failed: %s", e)
+        return None
 
 # Setup basic logging to see errors in your terminal
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +99,7 @@ logger = logging.getLogger(__name__)
 # ==========================================
 # RAG: CHROMADB INITIALIZATION
 # ==========================================
-CHROMA_PATH = "./xview2_vector_db"
+CHROMA_PATH = os.getenv("CHROMA_DB_PATH", "./xview2_vector_db")
 try:
     chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
     disaster_collection = chroma_client.get_or_create_collection(
@@ -472,11 +542,23 @@ def _retrieve_rag_context(
     if disaster_collection is None:
         return "", "no_collection", 0
 
+    # Strip frontend-injected [System Context: ...] block before routing so a map-selected feature
+    # UID doesn't force uid_lookup on every follow-up message.
+    clean_prompt = _SYSTEM_CONTEXT_PATTERN.sub("", prompt).strip()
+
+    # UID direct lookup — bypass ChromaDB and query MongoDB (only when user explicitly typed a UID)
+    uid_match = _UID_PATTERN.search(clean_prompt)
+    if uid_match:
+        uid = uid_match.group(0)
+        uid_info = _lookup_uid(uid)
+        if uid_info:
+            return f"--- BUILDING RECORD (MongoDB lookup) ---\n{uid_info}", "uid_lookup", 1
+
     memory = _session_memory(session_id)
     safe_filters, id_filters = _split_rag_filters(filters)
     routed = route_prompt_to_query(
-        prompt,
-        n_results=10,
+        clean_prompt,
+        n_results=8,
         last_queried_filename=memory.get("last_queried_filename"),
         last_found_files=memory.get("last_found_files"),
         around_center=memory.get("around_center"),
@@ -514,7 +596,7 @@ def _retrieve_rag_context(
             fallback_payload = dict(query_payload)
             fallback_payload.pop("where", None)
             fallback_payload["query_texts"] = [prompt]
-            fallback_payload["n_results"] = 10
+            fallback_payload["n_results"] = 15
             rows = _rows_from_query_results(disaster_collection.query(**fallback_payload))
     else:
         rows = _rows_from_query_results(disaster_collection.query(**query_payload))
@@ -522,8 +604,23 @@ def _retrieve_rag_context(
             fallback_payload = dict(query_payload)
             fallback_payload.pop("where", None)
             fallback_payload["query_texts"] = [prompt]
-            fallback_payload["n_results"] = 10
+            fallback_payload["n_results"] = 15
             rows = _rows_from_query_results(disaster_collection.query(**fallback_payload))
+
+    # If a specific scene is selected on the map, ensure its record is included at the top.
+    # This lets the LLM answer scene-specific chip questions (e.g. "How many destroyed?")
+    # even when the semantic search didn't rank that scene highly.
+    context_scene_match = _SCENE_ID_FROM_CONTEXT.search(prompt)
+    if context_scene_match and disaster_collection:
+        scene_filename = f"{context_scene_match.group(1)}_post_disaster.png"
+        existing_ids = {r[0] for r in rows}
+        if scene_filename not in existing_ids:
+            try:
+                scene_result = disaster_collection.get(ids=[scene_filename])
+                scene_rows = _rows_from_get_results(scene_result)
+                rows = scene_rows + rows  # prepend so LLM sees it first
+            except Exception as e:
+                logger.debug("Scene supplement lookup failed: %s", e)
 
     matched_ids = [row[0] for row in rows]
     matched_docs = [row[1] for row in rows if row[1]]
@@ -531,12 +628,29 @@ def _retrieve_rag_context(
     memory["last_queried_filename"] = memory_updates.get("last_queried_filename")
     if matched_ids:
         memory["last_found_files"] = matched_ids
+    geo_section: str = ""
     if rows:
         first_metadata = rows[0][2]
         lat = first_metadata.get("lat")
         lon = first_metadata.get("lon")
         if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
             memory["around_center"] = (float(lat), float(lon))
+            if any(kw in prompt.lower() for kw in _NEARBY_KEYWORDS):
+                addresses: list[str] = []
+                seen: set[str] = set()
+                for _, _, meta in rows[:5]:
+                    r_lat = meta.get("lat")
+                    r_lon = meta.get("lon")
+                    if not isinstance(r_lat, (int, float)) or not isinstance(r_lon, (int, float)):
+                        continue
+                    address = _reverse_geocode(float(r_lat), float(r_lon))
+                    if address and address not in seen:
+                        seen.add(address)
+                        addresses.append(address)
+                if addresses:
+                    geo_section = "--- NEARBY LOCATIONS (reverse geocoded) ---\n" + "\n".join(
+                        f"- {a}" for a in addresses
+                    )
 
     # Also query the articles collection for relevant background information
     article_docs: list[str] = []
@@ -556,6 +670,8 @@ def _retrieve_rag_context(
         sections.append("--- DAMAGE ASSESSMENT RECORDS ---\n" + "\n".join(matched_docs))
     if article_docs:
         sections.append("--- REFERENCE ARTICLES (FEMA / Wildfire Guides) ---\n" + "\n".join(article_docs))
+    if geo_section:
+        sections.append(geo_section)
     return "\n\n".join(sections), route, len(matched_docs)
 
 
@@ -757,23 +873,29 @@ def api_chat(body: ChatApiRequest, request: Request) -> dict[str, Any]:
         except Exception as e:
             logger.error(f"RAG Retrieval Error: {e}")
 
-    # STRENGTHENED SYSTEM PROMPT
     system = (
-        "You are the 'Surge Disaster Assessment Assistant'. You help users understand building damage from satellite imagery analysis. "
-        "Use the 'RELEVANT DATABASE RECORDS' below to answer the user's question. "
-        "The records contain building damage assessments (destroyed, major-damage, minor-damage, no-damage counts per scene) "
-        "and may also include excerpts from FEMA and wildfire reference articles. "
-        "Answer questions about damage counts, locations, severity, and general disaster information based on these records. "
-        "If the records are empty or clearly unrelated to the question, say: 'I couldn't find that specific information in my database.' "
-        "Do not make up data not present in the records. Be concise and helpful. "
+        "You are the 'Surge Disaster Assessment Assistant'. You help users analyze satellite imagery damage assessments and disaster-related documents. "
+        "You may respond naturally to greetings. "
+        "RULES:\n"
+        "1. The 'RELEVANT DATABASE RECORDS' section below is your ONLY authoritative source. Answer from it directly.\n"
+        "2. For street/location questions, list ONLY streets that appear in the 'NEARBY LOCATIONS' or 'LOCATION' fields of those records. Never infer or add streets from general knowledge or prior conversation turns.\n"
+        "3. For building UID questions, use the 'BUILDING RECORD' section.\n"
+        "4. Keep responses short and factual — 2 to 5 bullet points or sentences max.\n"
+        "5. A '[System Context: ...]' tag in the user message shows the map feature currently selected. "
+        "This tag does NOT restrict what records you may use — answer using ALL relevant records, not just the selected feature. "
+        "If the user's question mentions a location or disaster that DIFFERS from the [System Context] tag, answer based on the RELEVANT DATABASE RECORDS, not the tag.\n"
+        "6. If the user's question asks about counts or damage levels AND does NOT name a specific disaster, location, or place (e.g. 'how many structures were destroyed?' with no location given), do NOT guess. Ask them to clarify with these options: (a) a specific disaster — list the unique disaster_type values from the RELEVANT DATABASE RECORDS, or (b) total across all records. If they ask for totals, sum the counts from ALL records. If the question already names a location or disaster (e.g. 'in santa rosa', 'hurricane florence'), answer directly from the matching records without asking.\n"
+        "7. If the records are empty or do not contain an answer, say so in one sentence.\n"
         "\n\nRELEVANT DATABASE RECORDS:\n"
-        f"{rag_context if rag_context else 'No records found for this query.'}"
+        f"{rag_context if rag_context else 'No records found in database.'}"
     )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
 
-    # Add history and user message
-    for turn in body.conversation_history:
+    # Only send the most recent 6 messages (3 turns) to prevent old UID/address context
+    # from polluting answers to new general questions.
+    recent_history = body.conversation_history[-6:]
+    for turn in recent_history:
         messages.append({"role": turn.role.lower(), "content": turn.content})
     messages.append({"role": "user", "content": body.message})
 
